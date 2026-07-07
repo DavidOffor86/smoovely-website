@@ -32,7 +32,7 @@ export default function MaintenancePage() {
 
         <div className="mt-8">
           <a
-            href="tel:+441234567890"
+            href="tel:02045795520"
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-green px-7 py-3.5 text-sm font-semibold text-white shadow-lg shadow-green/25 transition hover:bg-green/90"
           >
             Need us now? Call the team

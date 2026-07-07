@@ -57,6 +57,10 @@ export default function Footer() {
               className="transition hover:text-white"
             >
               support@smoovelylogistics.com
+            </a>{" "}
+            ·{" "}
+            <a href="tel:02045795520" className="transition hover:text-white">
+              020 4579 5520
             </a>
           </p>
           <p className="mt-1">

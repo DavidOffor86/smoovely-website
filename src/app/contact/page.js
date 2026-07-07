@@ -24,6 +24,20 @@ const MailIcon = (
   </svg>
 );
 
+const PhoneIcon = (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="h-5 w-5 shrink-0 text-green"
+  >
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+  </svg>
+);
+
 const PinIcon = (
   <svg
     viewBox="0 0 24 24"
@@ -73,6 +87,21 @@ export default function ContactPage() {
                       className="mt-1 block text-sm text-slate-600 transition hover:text-green"
                     >
                       support@smoovelylogistics.com
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl bg-green/10">
+                    {PhoneIcon}
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-navy">Phone</h3>
+                    <a
+                      href="tel:02045795520"
+                      className="mt-1 block text-sm text-slate-600 transition hover:text-green"
+                    >
+                      020 4579 5520
                     </a>
                   </div>
                 </div>

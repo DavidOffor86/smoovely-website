@@ -1,7 +1,7 @@
 "use client";
 
-// Placeholder number — replace with the real business line.
-const PHONE = "+441234567890";
+// Business line — display: 020 4579 5520
+const PHONE = "02045795520";
 
 export default function FloatingCallButton() {
   return (
