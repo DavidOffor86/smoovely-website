@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
+import { useServerQuote } from "../lib/useServerQuote";
 
 /* ---------------------------------------------------------------------------
  * Storage Services flow for the QuickMove Quote configurator.
@@ -216,6 +217,12 @@ export default function StorageFlow({ onBack }) {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Server-authoritative quote (single-postcode service → travel £0 in Phase 1).
+  const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
+    "Storage Solutions",
+    form
+  );
+
   // Conditional triggers
   const showAccess = [
     "Collection + Storage",
@@ -274,40 +281,8 @@ export default function StorageFlow({ onBack }) {
     return [...new Set(flags)];
   };
 
-  // Pricing structure: Storage (size/volume + duration band) + Services
-  // (packing / dismantling / climate) + Transport (collection + access) +
-  // Complexity. Access factors only apply when a collection is involved, so
-  // they are gated under showAccess (no phantom charges for storage-only).
-  const calculatePrice = () => {
-    let price = 70; // storage base — admin + first handling
-    price += (storageSizes.findIndex((s) => s.id === form.size) + 1) * 45;
-    price += (vanLoads.indexOf(form.vanLoad) + 1) * 25;
-    price += { "< 1 month": 0, "1–3 months": 70, "3–6 months": 150, "6+ months": 260 }[form.duration] || 0;
-    if (Object.values(form.packing).some(Boolean)) price += 80;
-    price += Object.values(form.special).filter(Boolean).length * 30;
-    if (form.dismantling === "Yes") price += 60;
-    if (form.reassembly === "Yes") price += 60;
-    // Collection / linked labour + the access factors collected on that step.
-    if (showAccess) {
-      price += 90;
-      if (form.parking === "Paid") price += 15;
-      if (form.parking === "No Parking") price += 35;
-      if (form.distance === "Medium") price += 20;
-      if (form.distance === "Long") price += 45;
-      if (form.stairs === "Yes") price += 25;
-      // Upper floor with no lift = extra carrying labour.
-      if (form.lift === "No" && form.floor && !/ground/i.test(form.floor))
-        price += 40;
-    }
-    if (form.climate === "Yes") price += 50;
-    if (form.storagePlace === "Container") price += 30;
-    if (form.pallet === "Yes") price += 45; // business pallet storage
-    if (form.accessNeeded === "Yes")
-      price += { Rare: 15, Occasional: 30, Frequent: 60 }[form.accessFreq] || 20;
-    if (form.returnDelivery === "Yes") price += 90;
-    price += Object.values(form.complexity).filter(Boolean).length * 50;
-    return price;
-  };
+  // Pricing is server-authoritative — computed in pricing.server.js via
+  // /api/price (see useServerQuote above). No pricing constants on the client.
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -775,7 +750,7 @@ export default function StorageFlow({ onBack }) {
                 Your estimated quote
               </h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
-                {formatRange(calculatePrice())}
+                {loading && !estimate ? "Calculating…" : formatRange(estimate)}
               </p>
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · storage billed per month, confirmed on enquiry
@@ -801,7 +776,9 @@ export default function StorageFlow({ onBack }) {
               <SubmitQuoteButton
                 service="Storage Solutions"
                 form={form}
-                estimate={calculatePrice()}
+                estimate={estimate}
+                distanceMiles={distanceMiles}
+                travelComponent={travelComponent}
                 label="Get My Storage Quote"
               />
               <button

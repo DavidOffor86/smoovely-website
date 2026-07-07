@@ -1,23 +1,28 @@
 import { NextResponse } from "next/server";
+import { priceQuote } from "../../../lib/pricing.server";
+import { buildQuoteRecord, buildQuoteEmailText, buildLeadSummary } from "../../../lib/quoteRecord";
 
 /* ---------------------------------------------------------------------------
  * Quote submission endpoint.
  *
  * Data flow:
- *   Configurator → POST /api/quote → flatten to a CSV-ready row →
- *   forward to Power Automate webhook → Power Automate writes a row to the
- *   Excel/SharePoint table and sends the team notification email.
+ *   Configurator → POST /api/quote → RE-PRICE server-side (authoritative,
+ *   tamper-proof) → build a flat CSV-ready record + leadSummary →
+ *   forward to Power Automate (Excel/SharePoint row) + Resend notification.
+ *
+ * The client only sends { service, contact, details }. Every pricing/breakdown
+ * value is recomputed here via priceQuote() so the stored figure can't be
+ * edited in the browser. All pricing constants stay server-side.
  *
  * Env:
- *   POWER_AUTOMATE_WEBHOOK_URL  (required in prod — the "When an HTTP request
- *                                is received" trigger URL)
+ *   POWER_AUTOMATE_WEBHOOK_URL  (required in prod)
  *   RESEND_API_KEY + NOTIFY_EMAIL  (optional direct email, in addition to PA)
  *
  * With no env set it still succeeds and logs the row, so local dev works.
  * ------------------------------------------------------------------------- */
 
-// Flatten nested configurator answers into "key: value · key: value" — keeps
-// the stored row readable in a single Excel/CSV cell.
+// Flatten nested configurator answers into "key: value · key: value" — kept
+// for backward compatibility with the existing details_summary column.
 function summariseDetails(details = {}) {
   const skip = new Set(["name", "email", "phone"]);
   const parts = [];
@@ -25,7 +30,6 @@ function summariseDetails(details = {}) {
     if (skip.has(key) || value === "" || value == null) continue;
     let v = value;
     if (typeof value === "object") {
-      // e.g. checkbox maps { sofa: true } or access { parking: "Free" }
       v = Object.entries(value)
         .filter(([, val]) => val !== "" && val !== false && val != null)
         .map(([k, val]) => (val === true ? k : `${k}=${val}`))
@@ -40,26 +44,23 @@ function summariseDetails(details = {}) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    // Dev-only, PII-free summary — never log name/email/phone.
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[/api/quote] request:", {
-        service: body?.service,
-        hasEmail: Boolean(body?.email),
-        hasPhone: Boolean(body?.phone),
-      });
-    }
-
     const {
       service = "",
       name = "",
       email = "",
       phone = "",
-      estimate = null,
-      currency = "GBP",
       details = {},
-      source = "quote-configurator",
       submittedAt,
     } = body || {};
+
+    // Dev-only, PII-free summary — never log name/email/phone.
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[/api/quote] request:", {
+        service,
+        hasEmail: Boolean(email),
+        hasPhone: Boolean(phone),
+      });
+    }
 
     // Basic validation — must have a contact route and a service.
     if (!service || (!email && !phone)) {
@@ -69,28 +70,33 @@ export async function POST(req) {
       );
     }
 
-    // CSV-ready, flat record. Power Automate maps these 1:1 to Excel columns.
-    const record = {
-      timestamp: submittedAt || new Date().toISOString(),
+    // Re-price server-side (authoritative). Contact fields live on details too
+    // so the pricing engine sees the same shape the configurator used.
+    const quote = await priceQuote(service, { ...details, name, email, phone });
+
+    const timestamp = submittedAt || new Date().toISOString();
+    const record = buildQuoteRecord({
       service,
-      name,
-      email,
-      phone,
-      estimate: estimate ?? "",
-      currency,
-      details_summary: summariseDetails(details),
-      source,
-    };
+      contact: { name, email, phone },
+      details,
+      quote,
+      timestamp,
+    });
+    // Preserve the legacy flat summary column.
+    record.details_summary = summariseDetails(details);
+
+    const leadSummary = buildLeadSummary(service, details, quote);
 
     let forwarded = false;
 
-    // 1) Forward to Power Automate (preferred path: Excel row + email).
+    // 1) Forward to Power Automate (Excel row + downstream automation).
+    //    Existing columns preserved; new columns added non-destructively.
     const webhook = process.env.POWER_AUTOMATE_WEBHOOK_URL;
     if (webhook) {
       const res = await fetch(webhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...record, details }),
+        body: JSON.stringify({ ...record, leadSummary, details }),
       });
       forwarded = res.ok;
       if (!res.ok) {
@@ -108,28 +114,19 @@ export async function POST(req) {
             Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
           },
           body: JSON.stringify({
-            // Must match a verified sender/domain in Resend.
             from: "Smoovely <support@smoovelylogistics.com>",
             to: process.env.NOTIFY_EMAIL,
-            subject: `New ${service} quote — ${name || email || phone}`,
-            text:
-              `New configurator submission\n\n` +
-              `Service: ${service}\nName: ${name}\nEmail: ${email}\n` +
-              `Phone: ${phone}\nEstimate: ${currency} ${estimate}\n` +
-              `When: ${record.timestamp}\n\nDetails: ${record.details_summary}`,
+            subject:
+              `${record.customQuoteRequired ? "⚠ Custom Quote — " : ""}` +
+              `New ${service} quote — ${name || email || phone}`,
+            text: buildQuoteEmailText(record),
           }),
         });
 
-        // fetch does NOT throw on 4xx/5xx — inspect the response explicitly,
-        // otherwise Resend errors (403 unverified sender, 422 validation,
-        // 401 bad key) are silently swallowed.
+        // fetch does NOT throw on 4xx/5xx — inspect the response explicitly.
         const payload = await emailRes.json().catch(() => ({}));
         if (!emailRes.ok) {
-          console.error(
-            "[/api/quote] Resend rejected email:",
-            emailRes.status,
-            payload
-          );
+          console.error("[/api/quote] Resend rejected email:", emailRes.status, payload);
         } else {
           console.log("[/api/quote] Resend accepted email id:", payload.id);
         }
@@ -137,7 +134,6 @@ export async function POST(req) {
         console.error("[/api/quote] email notify failed (network):", err);
       }
     } else {
-      // Surface the silent-skip case — the #1 reason "email isn't sending".
       console.warn(
         "[/api/quote] Resend skipped — missing env:",
         !process.env.RESEND_API_KEY ? "RESEND_API_KEY " : "",
@@ -148,24 +144,20 @@ export async function POST(req) {
     // Always log the row so submissions are never silently lost in dev.
     console.log("[/api/quote] submission:", {
       service: record.service,
-      hasEmail: Boolean(record.email),
-      hasPhone: Boolean(record.phone),
+      estimate: record.estimate,
+      pricingVersion: record.pricingVersion,
+      customQuoteRequired: record.customQuoteRequired,
       forwarded,
     });
 
-    // Clean, flat JSON for Power Automate → Excel (1:1 column mapping).
     return NextResponse.json({
       ok: true,
       forwarded,
-      data: {
-        name: record.name,
-        email: record.email,
-        phone: record.phone,
-        service: record.service,
-        estimate: record.estimate,
-        date: record.timestamp,
-        details_summary: record.details_summary,
-      },
+      estimate: record.estimate,
+      estimateRange: record.estimateRange,
+      customQuoteRequired: record.customQuoteRequired,
+      pricingVersion: record.pricingVersion,
+      leadSummary,
     });
   } catch (err) {
     console.error("[/api/quote] error:", err);

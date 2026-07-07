@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
+import { useServerQuote } from "../lib/useServerQuote";
 
 /* ---------------------------------------------------------------------------
  * Home & Site Clearance flow for the QuickMove Quote configurator.
@@ -217,6 +218,12 @@ export default function ClearanceFlow({ onBack }) {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Server-authoritative quote (single-postcode service → travel £0 in Phase 1).
+  const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
+    "Clearance & Disposal",
+    form
+  );
+
   // Conditional triggers
   const showSiteWaste = form.clearanceType === "Construction Site Clearance";
   const showComplexity =
@@ -274,33 +281,8 @@ export default function ClearanceFlow({ onBack }) {
     return [...new Set(flags)];
   };
 
-  // Pricing structure: Labour (size + content + condition) + Disposal (volume
-  // + special items + skip) + Access (parking / stairs+lift / narrow / permit)
-  // + Services + Complexity + Urgency. Every collected access input now moves
-  // price, including lift availability and permit/restricted entry.
-  const calculatePrice = () => {
-    let price = 90; // clearance base
-    price += (propertySizes.indexOf(form.propertySize) + 1) * 45;
-    price += (loadSizes.indexOf(form.loadSize) + 1) * 40;
-    price += Object.values(form.content).filter(Boolean).length * 14;
-    price += Object.values(form.special).filter(Boolean).length * 30;
-    price += Object.values(form.siteWaste).filter(Boolean).length * 25;
-    if (form.parking === "Paid") price += 15;
-    if (form.parking === "No Parking") price += 35;
-    if (form.distance === "Medium") price += 20;
-    if (form.distance === "Long") price += 45;
-    // Stairs with no lift = significant extra carry-down labour for waste.
-    if (form.stairs === "Yes") price += form.lift === "Yes" ? 20 : 70;
-    if (form.access.narrow) price += 30;
-    if (form.access.restricted) price += 40;
-    if (form.access.permit) price += 60;
-    price += { "Clean / organised": 0, "General clutter": 25, "Heavy clutter": 60, "Waste piled": 85, "Overgrown / neglected": 70 }[form.condition] || 0;
-    if (form.skip === "Yes") price += 140;
-    price += Object.values(form.services).filter(Boolean).length * 35;
-    price += Object.values(form.complexity).filter(Boolean).length * 45;
-    price += { Standard: 0, "Next day": 60, "Same day": 130 }[form.urgency] || 0;
-    return price;
-  };
+  // Pricing is server-authoritative — computed in pricing.server.js via
+  // /api/price (see useServerQuote above). No pricing constants on the client.
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -729,7 +711,7 @@ export default function ClearanceFlow({ onBack }) {
                 Your estimated quote
               </h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
-                {formatRange(calculatePrice())}
+                {loading && !estimate ? "Calculating…" : formatRange(estimate)}
               </p>
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · final price confirmed on site assessment
@@ -754,7 +736,9 @@ export default function ClearanceFlow({ onBack }) {
               <SubmitQuoteButton
                 service="Clearance & Disposal"
                 form={form}
-                estimate={calculatePrice()}
+                estimate={estimate}
+                distanceMiles={distanceMiles}
+                travelComponent={travelComponent}
                 label="Get My Clearance Quote"
               />
               <button

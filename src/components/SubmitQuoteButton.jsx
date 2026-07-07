@@ -8,7 +8,14 @@ import { useState } from "react";
  * an inline confirmation. Keeps the original button styling/label untouched.
  * ------------------------------------------------------------------------- */
 
-export default function SubmitQuoteButton({ service, form, estimate, label = "Get My Quote" }) {
+export default function SubmitQuoteButton({
+  service,
+  form,
+  estimate,
+  distanceMiles = null,
+  travelComponent = null,
+  label = "Get My Quote",
+}) {
   const [status, setStatus] = useState("idle"); // idle | sending | done | error
 
   const submit = async () => {
@@ -29,6 +36,8 @@ export default function SubmitQuoteButton({ service, form, estimate, label = "Ge
           email: form?.email || "",
           phone: form?.phone || "",
           estimate,
+          distanceMiles,
+          travelComponent,
           currency: "GBP",
           details: form || {},
           source: "quote-configurator",

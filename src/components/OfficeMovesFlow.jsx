@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
+import { useServerQuote } from "../lib/useServerQuote";
 
 /* ---------------------------------------------------------------------------
  * Enhanced Office Moves flow for the QuickMove Quote configurator.
@@ -20,28 +21,24 @@ const officeSizes = [
     label: "Small Office",
     hint: "Single floor · up to ~10 desks",
     image: "/images/Office Icons Configurator/Smoovely Office Move - Small Office - One floor.png",
-    add: 0,
   },
   {
     id: "Medium Office",
     label: "Medium Office",
     hint: "10–25 desks",
     image: "/images/Office Icons Configurator/Smoovely Office Move - Medium Office - Two floors.png",
-    add: 180,
   },
   {
     id: "Large Office",
     label: "Large Office",
     hint: "25+ desks",
     image: "/images/Office Icons Configurator/Smoovely Office Move - Large Office - 1-3 floors.png",
-    add: 400,
   },
   {
     id: "Multi-Site / Phased Move",
     label: "Multi-Site / Phased Move",
     hint: "Project managed",
     image: "/images/Office Icons Configurator/Smoovely Office Move - Multiple Office Moves - Project Managed.png",
-    add: 650,
   },
 ];
 
@@ -247,6 +244,12 @@ export default function OfficeMovesFlow({ onBack }) {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Server-authoritative quote (service + travel computed in /api/price).
+  const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
+    "Office Moves",
+    form
+  );
+
   // Conditions that surface the optional Advanced Complexity step.
   const showComplexity =
     form.officeSize === "Large Office" ||
@@ -279,42 +282,8 @@ export default function OfficeMovesFlow({ onBack }) {
     return [...new Set(flags)];
   };
 
-  // Pricing structure: Labour (base + size + desks + inventory) + Access
-  // (parking / stairs / lift) + Services (IT / packing / dismantling) +
-  // Complexity (out-of-hours, phasing, multi-site, project management).
-  // London-aligned: structured office moves typically start ~£280 and scale.
-  const calculatePrice = () => {
-    let price = 280; // Office Moves base — crew + vehicle, half-day floor
-    price += officeSizes.find((o) => o.id === form.officeSize)?.add || 0;
-    price += Number(form.desks || 0) * 10;
-    price += Number(form.boxes || 0) * 2.5;
-    price += Object.values(form.inventory).filter(Boolean).length * 25;
-    [form.pickup, form.dropoff].forEach((a) => {
-      if (a.parking === "Paid") price += 20;
-      if (a.parking === "No Parking") price += 45;
-      // Stairs with no lift is a major labour add for office loads.
-      if (a.stairs === "Yes") price += a.lift === "Yes" ? 25 : 120;
-    });
-    if (form.movingIT === "Yes") price += 120;
-    if (form.servers === "Yes") price += 150;
-    if (form.packing === "Yes") price += 200;
-    if (form.dismantling === "Yes") price += 120;
-    // Weekend work costs more than evening out-of-hours.
-    if (form.outOfHours === "Yes")
-      price += form.oohWindow === "Weekend" ? 220 : 110;
-    if (form.phased === "Yes") price += Number(form.phases || 2) * 60;
-    // Advanced complexity contributions
-    if (form.multiFloor === "Yes") price += Number(form.floors || 3) * 40;
-    if (form.phasedMove === "Yes")
-      price += Number(form.phaseCount || 2) * 60 + Number(form.phaseDays || 0) * 80;
-    if (form.multiSite === "Yes") price += Number(form.siteCount || 2) * 120;
-    if (form.projectMgmt === "Yes") price += 350; // premium
-    if (form.onSiteCoord === "Yes") price += 150;
-    if (form.tightTimeline === "Yes") price += 120;
-    if (form.sensitiveAreas === "Yes") price += 90;
-    price += Object.values(form.factors).filter(Boolean).length * 35;
-    return Math.round(price);
-  };
+  // Pricing is server-authoritative — computed in pricing.server.js via
+  // /api/price (see useServerQuote above). No pricing constants on the client.
 
   const canContinue = step !== 1 || detailsValid;
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
@@ -743,7 +712,7 @@ export default function OfficeMovesFlow({ onBack }) {
                 Your estimated quote
               </h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
-                {formatRange(calculatePrice())}
+                {loading && !estimate ? "Calculating…" : formatRange(estimate)}
               </p>
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · final price confirmed on site survey
@@ -774,7 +743,9 @@ export default function OfficeMovesFlow({ onBack }) {
               <SubmitQuoteButton
                 service="Office Moves"
                 form={form}
-                estimate={calculatePrice()}
+                estimate={estimate}
+                distanceMiles={distanceMiles}
+                travelComponent={travelComponent}
                 label="Get My Quote"
               />
               <button

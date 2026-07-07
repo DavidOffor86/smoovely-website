@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
+import { useServerQuote } from "../lib/useServerQuote";
 
 /* ---------------------------------------------------------------------------
  * Enhanced B2B Delivery & Logistics flow for the QuickMove Quote configurator.
@@ -175,6 +176,12 @@ export default function B2BLogisticsFlow({ onBack }) {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Server-authoritative quote (service + travel computed in /api/price).
+  const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
+    "B2B Delivery & Logistics",
+    form
+  );
+
   const detailsValid =
     form.pickupPostcode && form.deliveryPostcode && form.email;
 
@@ -206,34 +213,8 @@ export default function B2BLogisticsFlow({ onBack }) {
     return [...new Set(flags)];
   };
 
-  // Pricing structure: Base + Transport (vehicle + distance) + Load (pallets /
-  // loose) + Access (parking / loading bay / stairs+lift) + Service level +
-  // Urgency + Surcharges. Every collected access/load input now moves price.
-  const calculatePrice = () => {
-    let price = 120; // B2B base
-    price += vehicleSizes.indexOf(form.vehicleSize) * 55; // vehicle scaling
-    if (form.loadKind === "Palletised") {
-      price += Number(form.pallets || 0) * 22;
-      // Non-stackable pallets consume more deck space → effective capacity drop.
-      if (form.stackable === "No") price += Number(form.pallets || 0) * 10;
-    }
-    if (form.loadKind === "Loose")
-      price += { Small: 25, Medium: 55, Large: 95 }[form.looseSize] || 0;
-    if (form.vehicleDistance === "Medium") price += 30;
-    if (form.vehicleDistance === "Long") price += 75;
-    // Access / site factors
-    if (form.parking === "Paid") price += 15;
-    if (form.parking === "Restricted") price += 35;
-    if (form.siteType === "Commercial" && form.loadingBay === "No") price += 25;
-    if (form.siteType === "Residential" && form.stairs === "Yes")
-      price += form.lift === "Yes" ? 20 : 60;
-    price += { Standard: 0, Premium: 45, "White-glove": 110 }[form.serviceLevel] || 0;
-    price += { Scheduled: 0, "Same-day": 90, "Dedicated express": 180 }[form.urgency] || 0;
-    if (form.goods.highValue) price += 60;
-    if (form.goods.fragile) price += 30;
-    price += Object.values(form.factors).filter(Boolean).length * 30;
-    return price;
-  };
+  // Pricing is server-authoritative — computed in pricing.server.js via
+  // /api/price (see useServerQuote above). No pricing constants on the client.
 
   const canContinue = step !== 1 || detailsValid;
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
@@ -616,7 +597,7 @@ export default function B2BLogisticsFlow({ onBack }) {
                 Your estimated quote
               </h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
-                {formatRange(calculatePrice())}
+                {loading && !estimate ? "Calculating…" : formatRange(estimate)}
               </p>
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · confirmed once route &amp; load are reviewed
@@ -649,7 +630,9 @@ export default function B2BLogisticsFlow({ onBack }) {
               <SubmitQuoteButton
                 service="B2B Delivery & Logistics"
                 form={form}
-                estimate={calculatePrice()}
+                estimate={estimate}
+                distanceMiles={distanceMiles}
+                travelComponent={travelComponent}
                 label="Get My Quote"
               />
               <button

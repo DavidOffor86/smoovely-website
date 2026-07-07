@@ -5,59 +5,39 @@ import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
+import { useServerQuote } from "../lib/useServerQuote";
+import { ROOMS, ROOM_ORDER } from "../lib/homeInventory";
 
 /* ---------------------------------------------------------------------------
- * Enhanced Home Removals flow for the QuickMove Quote configurator.
- * Self-contained: keeps the rest of MultiServicePlatform untouched.
+ * Home Removals flow (room-based inventory model).
+ * Pricing is server-authoritative (pricing.server.js via /api/price). This
+ * component only captures inputs and renders the returned breakdown — no
+ * pricing constants live here. Room/item labels come from the shared
+ * homeInventory catalog (same source the server uses for summaries).
+ * Mobile-first; same card/segmented UI language.
  * ------------------------------------------------------------------------- */
 
-const propertyOptions = [
-  {
-    id: "1 Bedroom Flat",
-    label: "1 Bedroom Flat",
-    image: "/images/House Icons Configurator/1 Bed Flat.jpg",
-  },
-  {
-    id: "2 Bedroom Property",
-    label: "2 Bedroom Property",
-    image: "/images/House Icons Configurator/2 Bedroom House.jpg",
-  },
-  {
-    id: "3 Bedroom Property",
-    label: "3 Bedroom Property",
-    image: "/images/House Icons Configurator/3 Bedroom House.jpg",
-  },
-  {
-    id: "4+ Bedroom Property",
-    label: "4+ Bedroom Property",
-    image: "/images/House Icons Configurator/4 Bedroom House.jpg",
-  },
+const roomsCatalog = ROOMS;
+const ROOM_KEYS = ROOM_ORDER;
+const HIGH_VALUE = ["None", "Low", "Medium", "High", "Very High"];
+const FRAGILE = ["Standard", "Some Fragile", "Delicate", "Very Delicate", "Specialist Handling"];
+const PACKING = ["Boxes", "Bubble Wrap", "Shrink Wrap", "Mattress Covers", "Wardrobe Boxes", "Full Packing Service"];
+const SPECIAL_HANDLING = ["Piano", "Safe", "Large Artwork", "Antique Furniture", "Gym Equipment", "American Fridge Freezer", "Other"];
+const FLOORS = ["Ground", "1st", "2nd", "3rd+", "Lift Available"];
+const PARKING = ["Free", "Paid", "No Parking"];
+const FLEXIBILITY = ["Exact Date", "+/- 3 Days", "Flexible"];
+const BUDGETS = ["Under £500", "£500-£1000", "£1000-£2000", "£2000+"];
+
+// Property type — contextual (does not affect price; rooms drive the quote).
+// Uses the original property images from /public/images/House Icons Configurator.
+const PROPERTY_TYPES = [
+  { id: "1 Bedroom Flat", label: "1 Bedroom Flat", image: "/images/House Icons Configurator/1 Bed Flat.jpg" },
+  { id: "2 Bedroom Property", label: "2 Bedroom Property", image: "/images/House Icons Configurator/2 Bedroom House.jpg" },
+  { id: "3 Bedroom Property", label: "3 Bedroom Property", image: "/images/House Icons Configurator/3 Bedroom House.jpg" },
+  { id: "4+ Bedroom Property", label: "4+ Bedroom Property", image: "/images/House Icons Configurator/4 Bedroom House.jpg" },
 ];
 
-const loadOptions = [
-  { id: "Small Load", sub: "¼ Van", value: 0 },
-  { id: "Medium Load", sub: "½ Van", value: 70 },
-  { id: "Large Load", sub: "¾ Van", value: 140 },
-  { id: "Full Load", sub: "1 Luton Van", value: 230 },
-];
-
-const itemList = [
-  { key: "sofa", label: "Sofa(s)" },
-  { key: "fridge", label: "Fridge" },
-  { key: "freezer", label: "Freezer" },
-  { key: "washing", label: "Washing Machine" },
-  { key: "beds", label: "Beds / Mattresses" },
-  { key: "wardrobes", label: "Wardrobes" },
-  { key: "dining", label: "Dining Table" },
-];
-
-const extras = [
-  { key: "packing", label: "Packing service required", price: 150 },
-  { key: "dismantling", label: "Dismantling / reassembly", price: 90 },
-  { key: "extraCare", label: "Extra care handling", price: 60 },
-];
-
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 12;
 
 const stepMotion = {
   initial: { opacity: 0, x: 24 },
@@ -66,7 +46,7 @@ const stepMotion = {
   transition: { duration: 0.25, ease: "easeOut" },
 };
 
-/* ---- small reusable UI helpers ---- */
+/* ---- reusable UI helpers (shared language with the other flows) ---- */
 
 function Field({ label, required, children }) {
   return (
@@ -82,7 +62,7 @@ function Field({ label, required, children }) {
 
 function Segmented({ options, value, onChange }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       {options.map((opt) => (
         <button
           key={opt}
@@ -101,44 +81,59 @@ function Segmented({ options, value, onChange }) {
   );
 }
 
-function AccessGroup({ title, value, onChange }) {
+function PillGroup({ options, value, onChange }) {
   return (
-    <div className="rounded-xl border border-gray-200 p-4">
-      <h3 className="mb-3 text-sm font-bold text-gray-800">{title}</h3>
-      <div className="space-y-3">
-        <div>
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-            Parking
-          </p>
-          <Segmented
-            options={["Free", "Paid", "No Parking"]}
-            value={value.parking}
-            onChange={(v) => onChange({ ...value, parking: v })}
-          />
-        </div>
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-              Stairs
-            </p>
-            <Segmented
-              options={["Yes", "No"]}
-              value={value.stairs}
-              onChange={(v) => onChange({ ...value, stairs: v })}
-            />
-          </div>
-          <div className="flex-1">
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-              Lift
-            </p>
-            <Segmented
-              options={["Yes", "No"]}
-              value={value.lift}
-              onChange={(v) => onChange({ ...value, lift: v })}
-            />
-          </div>
-        </div>
-      </div>
+    <div className="grid grid-cols-2 gap-2">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`rounded-lg border p-3 text-sm font-medium transition ${
+            value === opt
+              ? "border-blue-600 bg-blue-50 text-blue-800"
+              : "border-gray-300 text-gray-700 hover:border-blue-400"
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Quantity stepper — large tap targets for mobile.
+function Stepper({ value, onChange, min = 0 }) {
+  const v = Number(value || 0);
+  return (
+    <div className="inline-flex items-center gap-3">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(min, v - 1))}
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-lg font-bold text-gray-700 transition hover:border-blue-400 disabled:opacity-40"
+        disabled={v <= min}
+        aria-label="Decrease"
+      >
+        −
+      </button>
+      <span className="w-6 text-center text-sm font-semibold text-gray-800">{v}</span>
+      <button
+        type="button"
+        onClick={() => onChange(v + 1)}
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-300 text-lg font-bold text-gray-700 transition hover:border-blue-400"
+        aria-label="Increase"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+function BreakdownRow({ label, value, muted }) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className={muted ? "text-gray-500" : "font-medium text-gray-700"}>{label}</span>
+      <span className={muted ? "text-gray-500" : "font-semibold text-gray-900"}>{value}</span>
     </div>
   );
 }
@@ -151,55 +146,71 @@ export default function HomeRemovalsFlow({ onBack }) {
     name: "",
     phone: "",
     email: "",
-    property: "",
-    load: "",
-    items: {},
+    propertyType: "",
+    selectedRooms: {},
+    rooms: {},
     boxes: 0,
-    fragile: "No",
-    fragileDetails: "",
-    pickup: { parking: "", stairs: "", lift: "" },
-    dropoff: { parking: "", stairs: "", lift: "" },
-    packing: false,
-    dismantling: false,
-    extraCare: false,
-    date: "",
+    bags: 0,
+    suitcases: 0,
+    highValue: "None",
+    fragileLevel: "Standard",
+    packing: {},
+    specialHandling: {},
+    specialHandlingOther: "",
+    pickup: { parking: "Free", floor: "Ground" },
+    dropoff: { parking: "Free", floor: "Ground" },
+    moveDate: "",
+    moveFlexibility: "Flexible",
+    customerBudget: "",
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  // Server-authoritative quote (service + travel + packing + complexity).
+  const quote = useServerQuote("Home Removals", form);
+  const {
+    estimate,
+    distanceMiles,
+    serviceComponent,
+    travelComponent,
+    packingComponent,
+    complexityComponent,
+    vehicleRecommendation,
+    crewRecommendation,
+    customQuoteRequired,
+    loading,
+  } = quote;
+
   const detailsValid =
-    form.pickupPostcode &&
-    form.destPostcode &&
-    form.name &&
-    form.phone &&
-    form.email;
+    form.pickupPostcode && form.destPostcode && form.name && form.phone && form.email;
 
-  // Pricing structure: Labour (base + property + load + items) + Access
-  // (parking / stairs / lift) + Services (packing / dismantling / care).
-  // London-aligned: ~2 movers + Luton from £180; stairs without a lift is a
-  // major labour add, so lift availability now changes the price.
-  const calculatePrice = () => {
-    let price = 180; // Home Removals base — 2 movers + Luton, half-day floor
-    const propertyAdd = { "1 Bedroom Flat": 0, "2 Bedroom Property": 120, "3 Bedroom Property": 240, "4+ Bedroom Property": 400 };
-    price += propertyAdd[form.property] || 0;
-    price += loadOptions.find((l) => l.id === form.load)?.value || 0;
-    price += Object.values(form.items).filter(Boolean).length * 18;
-    price += Number(form.boxes || 0) * 3;
-    if (form.fragile === "Yes") price += 40;
-    [form.pickup, form.dropoff].forEach((a) => {
-      if (a.parking === "Paid") price += 20;
-      if (a.parking === "No Parking") price += 45;
-      // Stairs with no lift = significant extra carrying labour.
-      if (a.stairs === "Yes") price += a.lift === "Yes" ? 20 : 90;
+  const toggleRoom = (roomKey) =>
+    setForm((f) => {
+      const on = !f.selectedRooms[roomKey];
+      const rooms = { ...f.rooms };
+      if (!on) delete rooms[roomKey]; // clear items when a room is removed
+      return { ...f, selectedRooms: { ...f.selectedRooms, [roomKey]: on }, rooms };
     });
-    extras.forEach((e) => form[e.key] && (price += e.price));
-    return price;
-  };
 
+  const setItemQty = (roomKey, itemKey, qty) =>
+    setForm((f) => ({
+      ...f,
+      rooms: { ...f.rooms, [roomKey]: { ...(f.rooms[roomKey] || {}), [itemKey]: qty } },
+    }));
+
+  const togglePacking = (key) =>
+    setForm((f) => ({ ...f, packing: { ...f.packing, [key]: !f.packing[key] } }));
+
+  const toggleSpecial = (key) =>
+    setForm((f) => ({ ...f, specialHandling: { ...f.specialHandling, [key]: !f.specialHandling[key] } }));
+
+  const activeRooms = ROOM_KEYS.filter((k) => form.selectedRooms[k]);
   const canContinue = step !== 1 || detailsValid;
 
   const goNext = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
+
+  const gbp = (n) => `£${Number(n || 0).toLocaleString()}`;
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -221,12 +232,10 @@ export default function HomeRemovalsFlow({ onBack }) {
 
       <AnimatePresence mode="wait">
         <motion.div key={step} {...stepMotion}>
-          {/* STEP 1 — Customer & address details */}
+          {/* STEP 1 — Contact & addresses */}
           {step === 1 && (
             <div className="space-y-3">
-              <h2 className="text-center font-semibold text-gray-800">
-                Your move details
-              </h2>
+              <h2 className="text-center font-semibold text-gray-800">Your move details</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Pickup Postcode" required>
                   <input
@@ -239,7 +248,7 @@ export default function HomeRemovalsFlow({ onBack }) {
                 <Field label="Destination Postcode" required>
                   <input
                     className="w-full rounded-lg border border-gray-300 p-3 uppercase"
-                    placeholder="e.g. DA1 1AB"
+                    placeholder="e.g. M2 5BQ"
                     value={form.destPostcode}
                     onChange={(e) => set("destPostcode", e.target.value)}
                   />
@@ -274,38 +283,32 @@ export default function HomeRemovalsFlow({ onBack }) {
                 </Field>
               </div>
               {!detailsValid && (
-                <p className="text-xs text-gray-400">
-                  All fields are required to continue.
-                </p>
+                <p className="text-xs text-gray-400">All fields are required to continue.</p>
               )}
             </div>
           )}
 
-          {/* STEP 2 — Property size (visual) */}
+          {/* STEP 2 — Property type (contextual) */}
           {step === 2 && (
             <div>
               <h2 className="mb-4 text-center font-semibold text-gray-800">
-                What size is your property?
+                What type of property?
               </h2>
               <div className="grid grid-cols-2 gap-4">
-                {propertyOptions.map((opt) => {
-                  const active = form.property === opt.id;
+                {PROPERTY_TYPES.map((opt) => {
+                  const active = form.propertyType === opt.id;
                   return (
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => set("property", opt.id)}
+                      onClick={() => set("propertyType", opt.id)}
                       className={`overflow-hidden rounded-xl border-2 bg-white text-center transition ${
                         active
                           ? "border-blue-600 shadow-lg"
                           : "border-gray-200 hover:border-blue-400 hover:shadow-md"
                       }`}
                     >
-                      <img
-                        src={opt.image}
-                        alt={opt.label}
-                        className="h-28 w-full object-cover"
-                      />
+                      <img src={opt.image} alt={opt.label} className="h-28 w-full object-cover" />
                       <span className="block p-2 text-sm font-semibold text-gray-700">
                         {opt.label}
                       </span>
@@ -313,66 +316,134 @@ export default function HomeRemovalsFlow({ onBack }) {
                   );
                 })}
               </div>
+              <p className="mt-4 text-center text-xs text-gray-400">
+                Helps our team picture your move — you&apos;ll add exact items next.
+              </p>
             </div>
           )}
 
-          {/* STEP 3 — Load size estimation */}
+          {/* STEP 3 — Rooms */}
           {step === 3 && (
             <div>
-              <h2 className="mb-2 text-center font-semibold text-gray-800">
-                Estimate your load size
+              <h2 className="mb-4 text-center font-semibold text-gray-800">
+                Which rooms are you moving?
               </h2>
-              <div className="mb-4 rounded-lg bg-blue-50 p-3 text-xs text-blue-800">
-                <p className="font-semibold">Quick guide:</p>
-                <ul className="mt-1 list-disc pl-4">
-                  <li>1 bed → Small / Medium</li>
-                  <li>2 bed → Medium / Full</li>
-                  <li>3 bed → Full Luton</li>
-                </ul>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {loadOptions.map((opt) => {
-                  const active = form.load === opt.id;
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {ROOM_KEYS.map((key) => {
+                  const active = !!form.selectedRooms[key];
                   return (
                     <button
-                      key={opt.id}
+                      key={key}
                       type="button"
-                      onClick={() => set("load", opt.id)}
-                      className={`rounded-xl border-2 p-4 text-center transition ${
+                      onClick={() => toggleRoom(key)}
+                      className={`rounded-xl border-2 p-4 text-sm font-semibold transition ${
                         active
-                          ? "border-blue-600 bg-blue-50"
-                          : "border-gray-200 hover:border-blue-400"
+                          ? "border-blue-600 bg-blue-50 text-blue-800"
+                          : "border-gray-200 text-gray-700 hover:border-blue-400"
                       }`}
                     >
-                      <span className="block font-semibold text-gray-800">
-                        {opt.id}
-                      </span>
-                      <span className="mt-1 block text-xs text-gray-500">
-                        {opt.sub}
-                      </span>
+                      {roomsCatalog[key].label}
                     </button>
                   );
                 })}
               </div>
+              <p className="mt-4 text-center text-xs text-gray-400">
+                Select all that apply — you&apos;ll add items next.
+              </p>
             </div>
           )}
 
-          {/* STEP 4 — Item checklist */}
+          {/* STEP 4 — Items & quantities */}
           {step === 4 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">What are you moving?</h2>
+              {activeRooms.length === 0 && (
+                <p className="text-center text-sm text-gray-500">
+                  No rooms selected — go back and choose your rooms.
+                </p>
+              )}
+              {activeRooms.map((roomKey) => (
+                <div key={roomKey} className="rounded-xl border border-gray-200 p-4">
+                  <h3 className="mb-3 text-sm font-bold text-gray-800">
+                    {roomsCatalog[roomKey].label}
+                  </h3>
+                  <div className="space-y-2">
+                    {roomsCatalog[roomKey].items.map((item) => (
+                      <div key={item.key} className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700">{item.label}</span>
+                        <Stepper
+                          value={form.rooms[roomKey]?.[item.key] || 0}
+                          onChange={(q) => setItemQty(roomKey, item.key, q)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEP 5 — Boxes / bags / suitcases */}
+          {step === 5 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">Boxes & bags</h2>
+              {[
+                ["boxes", "Boxes"],
+                ["bags", "Bags"],
+                ["suitcases", "Suitcases"],
+              ].map(([key, label]) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between rounded-xl border border-gray-200 p-4"
+                >
+                  <span className="text-sm font-medium text-gray-800">{label}</span>
+                  <Stepper value={form[key]} onChange={(q) => set(key, q)} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEP 6 — Value & fragility */}
+          {step === 6 && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="mb-3 text-center font-semibold text-gray-800">
+                  High-value items?
+                </h2>
+                <PillGroup
+                  options={HIGH_VALUE}
+                  value={form.highValue}
+                  onChange={(v) => set("highValue", v)}
+                />
+              </div>
+              <div>
+                <h2 className="mb-3 text-center font-semibold text-gray-800">Fragile level</h2>
+                <PillGroup
+                  options={FRAGILE}
+                  value={form.fragileLevel}
+                  onChange={(v) => set("fragileLevel", v)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* STEP 7 — Special handling */}
+          {step === 7 && (
             <div>
-              <h2 className="mb-4 text-center font-semibold text-gray-800">
-                What are you moving?
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Special handling requirements
               </h2>
-              <div className="grid grid-cols-2 gap-2">
-                {itemList.map((item) => {
-                  const active = !!form.items[item.key];
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Items needing specialist care, equipment, or extra crew.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {SPECIAL_HANDLING.map((key) => {
+                  const active = !!form.specialHandling[key];
                   return (
                     <button
-                      key={item.key}
+                      key={key}
                       type="button"
-                      onClick={() =>
-                        set("items", { ...form.items, [item.key]: !active })
-                      }
+                      onClick={() => toggleSpecial(key)}
                       className={`flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition ${
                         active
                           ? "border-blue-600 bg-blue-50 font-medium text-blue-800"
@@ -380,107 +451,60 @@ export default function HomeRemovalsFlow({ onBack }) {
                       }`}
                     >
                       <span
-                        className={`flex h-5 w-5 items-center justify-center rounded border ${
-                          active
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-gray-300"
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                          active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
                         }`}
                       >
                         {active && "✓"}
                       </span>
-                      {item.label}
+                      {key}
                     </button>
                   );
                 })}
               </div>
-
-              <div className="mt-4">
-                <Field label="Number of boxes">
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full rounded-lg border border-gray-300 p-3"
-                    value={form.boxes}
-                    onChange={(e) => set("boxes", e.target.value)}
-                  />
-                </Field>
-              </div>
-
-              <div className="mt-4">
-                <p className="mb-1 text-sm font-medium text-gray-700">
-                  Any fragile or high-value items?
-                </p>
-                <Segmented
-                  options={["Yes", "No"]}
-                  value={form.fragile}
-                  onChange={(v) => set("fragile", v)}
-                />
-                {form.fragile === "Yes" && (
-                  <textarea
-                    className="mt-3 w-full rounded-lg border border-gray-300 p-3 text-sm"
-                    rows={2}
-                    placeholder="Tell us about them (e.g. piano, artwork, antiques)"
-                    value={form.fragileDetails}
-                    onChange={(e) => set("fragileDetails", e.target.value)}
-                  />
-                )}
-              </div>
+              {form.specialHandling.Other && (
+                <div className="mt-3">
+                  <Field label="Tell us more (optional)">
+                    <input
+                      className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+                      placeholder="e.g. pool table, motorbike, chandelier"
+                      value={form.specialHandlingOther}
+                      onChange={(e) => set("specialHandlingOther", e.target.value)}
+                    />
+                  </Field>
+                </div>
+              )}
             </div>
           )}
 
-          {/* STEP 5 — Access & logistics */}
-          {step === 5 && (
-            <div className="space-y-4">
-              <h2 className="text-center font-semibold text-gray-800">
-                Access at each address
-              </h2>
-              <AccessGroup
-                title="Pickup address"
-                value={form.pickup}
-                onChange={(v) => set("pickup", v)}
-              />
-              <AccessGroup
-                title="Drop-off address"
-                value={form.dropoff}
-                onChange={(v) => set("dropoff", v)}
-              />
-            </div>
-          )}
-
-          {/* STEP 6 — Additional services */}
-          {step === 6 && (
+          {/* STEP 8 — Packing requirements */}
+          {step === 8 && (
             <div>
               <h2 className="mb-4 text-center font-semibold text-gray-800">
-                Add extra services
+                Packing requirements
               </h2>
-              <div className="space-y-3">
-                {extras.map((e) => {
-                  const active = form[e.key];
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {PACKING.map((key) => {
+                  const active = !!form.packing[key];
                   return (
                     <button
-                      key={e.key}
+                      key={key}
                       type="button"
-                      onClick={() => set(e.key, !active)}
-                      className={`flex w-full items-center justify-between rounded-xl border p-4 text-left transition ${
+                      onClick={() => togglePacking(key)}
+                      className={`flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition ${
                         active
-                          ? "border-blue-600 bg-blue-50"
-                          : "border-gray-300 hover:border-blue-400"
+                          ? "border-blue-600 bg-blue-50 font-medium text-blue-800"
+                          : "border-gray-300 text-gray-700 hover:border-blue-400"
                       }`}
                     >
-                      <span className="text-sm font-medium text-gray-800">
-                        {e.label}
-                      </span>
                       <span
-                        className={`relative h-6 w-11 rounded-full transition ${
-                          active ? "bg-blue-600" : "bg-gray-300"
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                          active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
                         }`}
                       >
-                        <span
-                          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
-                            active ? "left-[22px]" : "left-0.5"
-                          }`}
-                        />
+                        {active && "✓"}
                       </span>
+                      {key}
                     </button>
                   );
                 })}
@@ -488,54 +512,128 @@ export default function HomeRemovalsFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 7 — Date */}
-          {step === 7 && (
-            <div className="text-center">
-              <h2 className="mb-4 font-semibold text-gray-800">
-                Preferred moving date
+          {/* STEP 9 — Access & floors */}
+          {step === 9 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">Access at each address</h2>
+              {[
+                ["pickup", "Pickup address"],
+                ["dropoff", "Drop-off address"],
+              ].map(([addrKey, title]) => (
+                <div key={addrKey} className="rounded-xl border border-gray-200 p-4">
+                  <h3 className="mb-3 text-sm font-bold text-gray-800">{title}</h3>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Parking
+                  </p>
+                  <Segmented
+                    options={PARKING}
+                    value={form[addrKey].parking}
+                    onChange={(v) => set(addrKey, { ...form[addrKey], parking: v })}
+                  />
+                  <p className="mb-1 mt-3 text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Floor
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {FLOORS.map((fl) => (
+                      <button
+                        key={fl}
+                        type="button"
+                        onClick={() => set(addrKey, { ...form[addrKey], floor: fl })}
+                        className={`rounded-lg border p-2 text-xs font-medium transition ${
+                          form[addrKey].floor === fl
+                            ? "border-blue-600 bg-blue-600 text-white"
+                            : "border-gray-300 bg-white text-gray-700 hover:border-blue-400"
+                        }`}
+                      >
+                        {fl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEP 10 — Move date & flexibility */}
+          {step === 10 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">Preferred move date</h2>
+              <Field label="Date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-gray-300 p-3"
+                  value={form.moveDate}
+                  onChange={(e) => set("moveDate", e.target.value)}
+                />
+              </Field>
+              <div>
+                <p className="mb-1 text-sm font-medium text-gray-700">Flexibility</p>
+                <Segmented
+                  options={FLEXIBILITY}
+                  value={form.moveFlexibility}
+                  onChange={(v) => set("moveFlexibility", v)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* STEP 11 — Budget */}
+          {step === 11 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                What&apos;s your budget?
               </h2>
-              <input
-                type="date"
-                className="w-full rounded-lg border border-gray-300 p-3"
-                value={form.date}
-                onChange={(e) => set("date", e.target.value)}
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Optional — helps us tailor the right service.
+              </p>
+              <PillGroup
+                options={BUDGETS}
+                value={form.customerBudget}
+                onChange={(v) => set("customerBudget", v)}
               />
             </div>
           )}
 
-          {/* STEP 8 — Quote */}
-          {step === 8 && (
+          {/* STEP 12 — Review & breakdown */}
+          {step === 12 && (
             <div className="text-center">
-              <h2 className="mb-1 text-sm font-medium text-gray-500">
-                Your estimated quote
-              </h2>
+              <h2 className="mb-1 text-sm font-medium text-gray-500">Your estimated quote</h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
-                {formatRange(calculatePrice())}
+                {loading && !estimate ? "Calculating…" : formatRange(estimate)}
               </p>
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · final price confirmed on survey
               </p>
-              <div className="mb-5 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
-                <p>
-                  <span className="font-semibold">Route:</span>{" "}
-                  {form.pickupPostcode || "—"} → {form.destPostcode || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Property:</span>{" "}
-                  {form.property || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Load:</span> {form.load || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Date:</span>{" "}
-                  {form.date || "Flexible"}
-                </p>
+
+              {/* Breakdown */}
+              <div className="mb-4 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
+                <BreakdownRow label="Service" value={gbp(serviceComponent)} />
+                <BreakdownRow label="Travel" value={gbp(travelComponent)} />
+                <BreakdownRow label="Packing" value={gbp(packingComponent)} />
+                <BreakdownRow label="Complexity" value={gbp(complexityComponent)} />
+                <div className="my-2 border-t border-gray-200" />
+                <BreakdownRow
+                  label="Distance"
+                  value={distanceMiles != null ? `${distanceMiles} miles` : "Local / included"}
+                  muted
+                />
+                <BreakdownRow label="Vehicle" value={vehicleRecommendation || "—"} muted />
+                <BreakdownRow label="Crew" value={crewRecommendation || "—"} muted />
               </div>
+
+              {customQuoteRequired && (
+                <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
+                  ⚠ Custom Quote Required — submit your details and our team will
+                  confirm a tailored price.
+                </div>
+              )}
+
               <SubmitQuoteButton
                 service="Home Removals"
                 form={form}
-                estimate={calculatePrice()}
+                estimate={estimate}
+                distanceMiles={distanceMiles}
+                travelComponent={travelComponent}
                 label="Pay Deposit"
               />
               <button
@@ -545,11 +643,7 @@ export default function HomeRemovalsFlow({ onBack }) {
               >
                 ← Back &amp; Edit Quote
               </button>
-              <DiscountEligibility
-                name={form.name}
-                email={form.email}
-                phone={form.phone}
-              />
+              <DiscountEligibility name={form.name} email={form.email} phone={form.phone} />
             </div>
           )}
         </motion.div>

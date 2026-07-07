@@ -1,15 +1,14 @@
 /* ---------------------------------------------------------------------------
- * Shared pricing utilities for the QuickMove configurator.
+ * Shared PRESENTATION helpers for the QuickMove configurator.
  *
- * Each flow keeps its own calculatePrice() (modular, service-specific), but
- * presentation is standardised here so every quote:
- *   - keeps a single POINT estimate (the number sent in the booking payload)
- *   - shows the customer an honest RANGE around it
+ * These are display maths only (band width + £10 rounding) — NOT business
+ * rules — so they are safe to run in the browser. All pricing constants and
+ * logic (service/travel/complexity/etc.) live server-side in pricing.server.js
+ * and are reached via /api/price. Nothing here reveals margins or rates.
  *
  * Spec requirement: "Avoid misleading fixed quotes — show price range where
- * necessary, e.g. £650–£800." A configurator can't see access photos, exact
- * mileage or on-site reality, so the band communicates that the final figure
- * is confirmed on survey.
+ * necessary, e.g. £650–£800." The band communicates that the final figure is
+ * confirmed on survey.
  * ------------------------------------------------------------------------- */
 
 // Round to the nearest £10 so quotes read cleanly (£648 → £650).
