@@ -51,6 +51,7 @@ export async function POST(req) {
       phone = "",
       details = {},
       submittedAt,
+      quoteVersion,
     } = body || {};
 
     // Dev-only, PII-free summary — never log name/email/phone.
@@ -81,6 +82,7 @@ export async function POST(req) {
       details,
       quote,
       timestamp,
+      quoteVersion,
     });
     // Preserve the legacy flat summary column.
     record.details_summary = summariseDetails(details);
@@ -146,6 +148,7 @@ export async function POST(req) {
       service: record.service,
       estimate: record.estimate,
       pricingVersion: record.pricingVersion,
+      quoteVersion: record.quoteVersion,
       customQuoteRequired: record.customQuoteRequired,
       forwarded,
     });
@@ -157,6 +160,7 @@ export async function POST(req) {
       estimateRange: record.estimateRange,
       customQuoteRequired: record.customQuoteRequired,
       pricingVersion: record.pricingVersion,
+      quoteVersion: record.quoteVersion,
       leadSummary,
     });
   } catch (err) {

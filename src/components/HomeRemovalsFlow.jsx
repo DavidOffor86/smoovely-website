@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
-import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
-import { ROOMS, ROOM_ORDER } from "../lib/homeInventory";
+import { ROOMS, ROOM_ORDER, summariseInventory } from "../lib/homeInventory";
 
 /* ---------------------------------------------------------------------------
  * Home Removals flow (room-based inventory model).
@@ -37,7 +36,10 @@ const PROPERTY_TYPES = [
   { id: "4+ Bedroom Property", label: "4+ Bedroom Property", image: "/images/House Icons Configurator/4 Bedroom House.jpg" },
 ];
 
-const TOTAL_STEPS = 12;
+// Steps 1–11 capture inputs; step 12 is the Review Summary; step 13 is the
+// final quote screen. The lead submission fires on "Get My Quote" (step 12).
+const TOTAL_STEPS = 13;
+const REVIEW_STEP = 12;
 
 const stepMotion = {
   initial: { opacity: 0, x: 24 },
@@ -138,6 +140,19 @@ function BreakdownRow({ label, value, muted }) {
   );
 }
 
+// Read-only label/value row for the Review Summary. Values wrap and align right
+// so long inventory/room lists stay readable on mobile.
+function SummaryRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-gray-100 py-2 last:border-0">
+      <span className="shrink-0 font-medium text-gray-600">{label}</span>
+      <span className="whitespace-pre-line text-right font-semibold text-gray-900">
+        {value == null || value === "" ? "—" : value}
+      </span>
+    </div>
+  );
+}
+
 export default function HomeRemovalsFlow({ onBack }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -165,6 +180,13 @@ export default function HomeRemovalsFlow({ onBack }) {
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Lead submission state. "Get My Quote" (Review Summary) fires the email,
+  // lead capture, Power Automate submission and server-side quote generation.
+  // quoteVersion increments on every submission so edits produce a new,
+  // resent, re-forwarded quote version (never permanently locked).
+  const [submitStatus, setSubmitStatus] = useState("idle"); // idle|sending|done|error
+  const [quoteVersion, setQuoteVersion] = useState(0);
 
   // Server-authoritative quote (service + travel + packing + complexity).
   const quote = useServerQuote("Home Removals", form);
@@ -211,6 +233,44 @@ export default function HomeRemovalsFlow({ onBack }) {
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
 
   const gbp = (n) => `£${Number(n || 0).toLocaleString()}`;
+
+  // "Get My Quote" — moved here from the final screen. Fires the full lead
+  // submission (server re-price → Power Automate row + Resend email) and
+  // advances to the final quote screen. Re-clicking after edits regenerates the
+  // quote, resends the email, resubmits the Power Automate payload and creates
+  // an updated quote version. Only a request already in flight is blocked.
+  const submitQuote = async () => {
+    if (submitStatus === "sending") return;
+    const version = quoteVersion + 1;
+    setQuoteVersion(version);
+    setSubmitStatus("sending");
+    try {
+      const res = await fetch("/api/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service: "Home Removals",
+          name: form.name || "",
+          email: form.email || "",
+          phone: form.phone || "",
+          estimate,
+          distanceMiles,
+          travelComponent,
+          currency: "GBP",
+          quoteVersion: version,
+          details: { ...form, quoteVersion: version },
+          source: "quote-configurator",
+          submittedAt: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error(`Submission failed (${res.status})`);
+      setSubmitStatus("done");
+      setStep(TOTAL_STEPS); // advance to the final quote screen
+    } catch (err) {
+      console.error("[HomeRemovalsFlow] Get My Quote submit failed:", err);
+      setSubmitStatus("error");
+    }
+  };
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -594,8 +654,94 @@ export default function HomeRemovalsFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 12 — Review & breakdown */}
+          {/* STEP 12 — Review Summary */}
           {step === 12 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Review your details
+              </h2>
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Check everything below, then get your quote. You can go back to
+                change any answer.
+              </p>
+
+              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
+                <SummaryRow label="Service" value="Home Removals" />
+                <SummaryRow label="Property Type" value={form.propertyType} />
+                <SummaryRow
+                  label="Rooms"
+                  value={activeRooms.map((k) => roomsCatalog[k].label).join(", ")}
+                />
+                <SummaryRow label="Inventory" value={summariseInventory(form)} />
+                <SummaryRow label="Boxes" value={String(form.boxes || 0)} />
+                <SummaryRow label="Bags" value={String(form.bags || 0)} />
+                <SummaryRow label="Suitcases" value={String(form.suitcases || 0)} />
+                <SummaryRow
+                  label="Move Date"
+                  value={
+                    form.moveDate
+                      ? `${form.moveDate} (${form.moveFlexibility})`
+                      : `Flexible (${form.moveFlexibility})`
+                  }
+                />
+                <SummaryRow
+                  label="Distance"
+                  value={
+                    distanceMiles != null
+                      ? `${distanceMiles} miles`
+                      : "Local / included"
+                  }
+                />
+                <SummaryRow label="High Value Level" value={form.highValue} />
+                <SummaryRow label="Fragile Level" value={form.fragileLevel} />
+                <SummaryRow
+                  label="Packing Requirements"
+                  value={
+                    Object.keys(form.packing).filter((k) => form.packing[k]).join(", ") ||
+                    "None"
+                  }
+                />
+                <SummaryRow
+                  label="Vehicle Recommendation"
+                  value={vehicleRecommendation}
+                />
+                <SummaryRow label="Crew Recommendation" value={crewRecommendation} />
+              </div>
+
+              {customQuoteRequired && (
+                <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
+                  ⚠ Custom Quote Required — submit your details and our team will
+                  confirm a tailored price.
+                </div>
+              )}
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={submitQuote}
+                  disabled={submitStatus === "sending"}
+                  className="flex-1 rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  {submitStatus === "sending" ? "Sending…" : "Get My Quote"}
+                </button>
+              </div>
+              {submitStatus === "error" && (
+                <p className="mt-2 text-center text-sm text-red-500">
+                  Something went wrong. Please try again, or call us to confirm.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* STEP 13 — Final quote & breakdown */}
+          {step === 13 && (
             <div className="text-center">
               <h2 className="mb-1 text-sm font-medium text-gray-500">Your estimated quote</h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
@@ -628,14 +774,10 @@ export default function HomeRemovalsFlow({ onBack }) {
                 </div>
               )}
 
-              <SubmitQuoteButton
-                service="Home Removals"
-                form={form}
-                estimate={estimate}
-                distanceMiles={distanceMiles}
-                travelComponent={travelComponent}
-                label="Pay Deposit"
-              />
+              <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
+                ✅ Request sent — our team will be in touch shortly to confirm your
+                quote.
+              </div>
               <button
                 type="button"
                 onClick={goBack}
@@ -649,8 +791,8 @@ export default function HomeRemovalsFlow({ onBack }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
-      {step < TOTAL_STEPS && (
+      {/* Navigation — capture steps only; Review (12) & Final (13) have their own */}
+      {step < REVIEW_STEP && (
         <div className="mt-6 flex gap-3">
           <button
             type="button"

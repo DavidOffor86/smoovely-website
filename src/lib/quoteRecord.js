@@ -28,7 +28,7 @@ export function buildLeadSummary(service, details = {}, quote = {}) {
 }
 
 /** Flat record — every key maps 1:1 to an Excel / Power Automate column. */
-export function buildQuoteRecord({ service, contact = {}, details = {}, quote = {}, timestamp }) {
+export function buildQuoteRecord({ service, contact = {}, details = {}, quote = {}, timestamp, quoteVersion }) {
   const range =
     quote.low != null && quote.high != null
       ? `£${quote.low.toLocaleString()}–£${quote.high.toLocaleString()}`
@@ -36,6 +36,7 @@ export function buildQuoteRecord({ service, contact = {}, details = {}, quote = 
   return {
     timestamp,
     service,
+    quoteVersion: quoteVersion ?? details.quoteVersion ?? 1,
     name: contact.name || "",
     email: contact.email || "",
     phone: contact.phone || "",
@@ -102,6 +103,7 @@ export function buildQuoteEmailText(record) {
     parts.push(`Move Date:\n${record.moveDate || "Flexible"} (${record.moveFlexibility || "Flexible"})\n`);
   }
   if (record.customerBudget) parts.push(`Budget:\n${record.customerBudget}\n`);
+  if (record.quoteVersion) parts.push(`Quote Version:\n${record.quoteVersion}\n`);
   if (record.pricingVersion) parts.push(`Pricing Version:\n${record.pricingVersion}\n`);
   if (record.inventorySummary) parts.push(`Inventory Summary:\n${record.inventorySummary}\n`);
 
