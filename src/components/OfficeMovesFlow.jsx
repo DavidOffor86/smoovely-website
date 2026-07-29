@@ -6,6 +6,9 @@ import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
+import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
+import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
+import ReviewSummary from "./quote/ReviewSummary";
 
 /* ---------------------------------------------------------------------------
  * Enhanced Office Moves flow for the QuickMove Quote configurator.
@@ -209,11 +212,14 @@ export default function OfficeMovesFlow({ onBack }) {
   const [form, setForm] = useState({
     pickupPostcode: "",
     destPostcode: "",
+    businessName: "",
     name: "",
     phone: "",
     email: "",
+    moveDate: "",
     officeSize: "",
     desks: 0,
+    employees: "",
     boxes: 0,
     inventory: {},
     pickup: { parking: "Free", lift: "No", stairs: "No" },
@@ -240,9 +246,13 @@ export default function OfficeMovesFlow({ onBack }) {
     tightTimeline: "No",
     sensitiveAreas: "No",
     factors: {},
+    ...ATTRIBUTION_DEFAULTS,
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
+  useReferralParam(setForm);
 
   // Server-authoritative quote (service + travel computed in /api/price).
   const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
@@ -257,8 +267,14 @@ export default function OfficeMovesFlow({ onBack }) {
     Number(form.desks) > 15 ||
     form.phased === "Yes";
 
-  // Step 6 = Complexity (only when triggered); Review is always the last step.
-  const totalSteps = showComplexity ? 7 : 6;
+  // Capture steps run 1..captureCount (step 6 = Complexity only when triggered).
+  // Then: Lead Attribution → Review Summary → Final. No customer reaches
+  // "Get My Quote" without passing through the Review Summary.
+  const captureCount = showComplexity ? 6 : 5;
+  const leadStep = captureCount + 1;
+  const reviewStep = captureCount + 2;
+  const finalStep = captureCount + 3;
+  const totalSteps = finalStep;
 
   const detailsValid =
     form.pickupPostcode && form.destPostcode && form.email;
@@ -285,9 +301,86 @@ export default function OfficeMovesFlow({ onBack }) {
   // Pricing is server-authoritative — computed in pricing.server.js via
   // /api/price (see useServerQuote above). No pricing constants on the client.
 
-  const canContinue = step !== 1 || detailsValid;
+  const canContinue =
+    (step !== 1 || detailsValid) && (step !== leadStep || !!form.leadSource);
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
+
+  // Standardised Review Summary sections (empty rows are dropped downstream).
+  const invList = inventory
+    .filter((i) => form.inventory[i.key])
+    .map((i) => i.label)
+    .join(", ");
+  const additionalServices = [
+    form.movingIT === "Yes" && "Moving IT",
+    form.servers === "Yes" && "Server disconnection",
+    form.packing === "Yes" && "Packing",
+    form.dismantling === "Yes" && "Dismantling",
+    form.outOfHours === "Yes" && `Out-of-hours (${form.oohWindow})`,
+    form.phased === "Yes" && `Phased (${form.phases})`,
+    form.multiFloor === "Yes" && `Multi-floor (${form.floors})`,
+    form.multiSite === "Yes" && `Multi-site (${form.siteCount})`,
+    form.projectMgmt === "Yes" && "Dedicated move manager",
+    form.onSiteCoord === "Yes" && "On-site coordination",
+    form.tightTimeline === "Yes" && "Time-sensitive",
+    form.sensitiveAreas === "Yes" && "Sensitive areas",
+    ...complexityFactors.filter((f) => form.factors[f.key]).map((f) => f.label),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const accessStr = (a) =>
+    [a.parking, a.lift === "Yes" && "Lift", a.stairs === "Yes" && "Stairs"]
+      .filter(Boolean)
+      .join(" · ");
+  const reviewSections = [
+    {
+      title: "Service Details",
+      rows: [
+        { label: "Service", value: "Office Moves" },
+        { label: "Office Size", value: form.officeSize },
+        { label: "Desks", value: form.desks ? String(form.desks) : "" },
+        { label: "Employee Count", value: form.employees },
+        { label: "Boxes", value: form.boxes ? String(form.boxes) : "" },
+        { label: "Inventory", value: invList },
+        { label: "Additional Services", value: additionalServices },
+        { label: "Project Notes", value: form.projectNote },
+      ],
+    },
+    {
+      title: "Location Details",
+      rows: [
+        { label: "Office Pickup Postcode", value: form.pickupPostcode },
+        { label: "Office Destination Postcode", value: form.destPostcode },
+        { label: "Pickup Access", value: accessStr(form.pickup) },
+        { label: "Drop-off Access", value: accessStr(form.dropoff) },
+        {
+          label: "Distance",
+          value: distanceMiles != null ? `${distanceMiles} miles` : "",
+        },
+      ],
+    },
+    {
+      title: "Contact Details",
+      rows: [
+        { label: "Business Name", value: form.businessName },
+        { label: "Contact Name", value: form.name },
+        { label: "Phone", value: form.phone },
+        { label: "Email", value: form.email },
+      ],
+    },
+    {
+      title: "Lead Attribution",
+      rows: [
+        { label: "Lead Source", value: form.leadSource },
+        { label: "Referrer Name", value: form.referrerName },
+        { label: "Lead Source Code", value: form.leadSourceCode },
+      ],
+    },
+    {
+      title: "Additional Information",
+      rows: [{ label: "Move Date", value: form.moveDate }],
+    },
+  ];
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -333,7 +426,15 @@ export default function OfficeMovesFlow({ onBack }) {
                   />
                 </Field>
               </div>
-              <Field label="Full Name">
+              <Field label="Business Name">
+                <input
+                  className="w-full rounded-lg border border-gray-300 p-3"
+                  placeholder="Company name"
+                  value={form.businessName}
+                  onChange={(e) => set("businessName", e.target.value)}
+                />
+              </Field>
+              <Field label="Contact Name">
                 <input
                   className="w-full rounded-lg border border-gray-300 p-3"
                   placeholder="Your full name"
@@ -361,6 +462,14 @@ export default function OfficeMovesFlow({ onBack }) {
                   />
                 </Field>
               </div>
+              <Field label="Preferred Move Date">
+                <input
+                  type="date"
+                  className="w-full rounded-lg border border-gray-300 p-3"
+                  value={form.moveDate}
+                  onChange={(e) => set("moveDate", e.target.value)}
+                />
+              </Field>
             </div>
           )}
 
@@ -410,14 +519,23 @@ export default function OfficeMovesFlow({ onBack }) {
               <h2 className="mb-4 text-center font-semibold text-gray-800">
                 Scope & volume
               </h2>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Number of desks">
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Desks">
                   <input
                     type="number"
                     min="0"
                     className="w-full rounded-lg border border-gray-300 p-3"
                     value={form.desks}
                     onChange={(e) => set("desks", e.target.value)}
+                  />
+                </Field>
+                <Field label="Employees">
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full rounded-lg border border-gray-300 p-3"
+                    value={form.employees}
+                    onChange={(e) => set("employees", e.target.value)}
                   />
                 </Field>
                 <Field label="Boxes">
@@ -705,8 +823,43 @@ export default function OfficeMovesFlow({ onBack }) {
             </div>
           )}
 
-          {/* REVIEW & submit (always the final step) */}
-          {step === totalSteps && (
+          {/* LEAD ATTRIBUTION */}
+          {step === leadStep && (
+            <LeadAttributionStep
+              leadSource={form.leadSource}
+              referrerName={form.referrerName}
+              onChange={set}
+            />
+          )}
+
+          {/* REVIEW SUMMARY — submission happens here */}
+          {step === reviewStep && (
+            <ReviewSummary sections={reviewSections}>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+                >
+                  Back
+                </button>
+                <div className="flex-1">
+                  <SubmitQuoteButton
+                    service="Office Moves"
+                    form={form}
+                    estimate={estimate}
+                    distanceMiles={distanceMiles}
+                    travelComponent={travelComponent}
+                    label="Get My Quote"
+                    onSuccess={() => setStep(finalStep)}
+                  />
+                </div>
+              </div>
+            </ReviewSummary>
+          )}
+
+          {/* FINAL — estimate & confirmation */}
+          {step === finalStep && (
             <div className="text-center" data-pricing-flags={buildPricingFlags().join(",")}>
               <h2 className="mb-1 text-sm font-medium text-gray-500">
                 Your estimated quote
@@ -717,37 +870,10 @@ export default function OfficeMovesFlow({ onBack }) {
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · final price confirmed on site survey
               </p>
-              <div className="mb-4 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
-                <p>
-                  <span className="font-semibold">Route:</span>{" "}
-                  {form.pickupPostcode || "—"} → {form.destPostcode || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Office:</span>{" "}
-                  {form.officeSize || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Desks:</span>{" "}
-                  {form.desks || 0}
-                </p>
-                <p>
-                  <span className="font-semibold">IT / Servers:</span>{" "}
-                  {form.movingIT}
-                  {form.movingIT === "Yes" && ` · Servers: ${form.servers}`}
-                </p>
+              <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
+                ✅ Thank you — your request has been sent. Our team will be in
+                touch shortly to confirm your quote.
               </div>
-              <p className="mb-5 text-xs italic text-gray-500">
-                We focus on structured office moves to minimise disruption to
-                your business.
-              </p>
-              <SubmitQuoteButton
-                service="Office Moves"
-                form={form}
-                estimate={estimate}
-                distanceMiles={distanceMiles}
-                travelComponent={travelComponent}
-                label="Get My Quote"
-              />
               <button
                 type="button"
                 onClick={goBack}
@@ -765,8 +891,8 @@ export default function OfficeMovesFlow({ onBack }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
-      {step < totalSteps && (
+      {/* Navigation — capture + attribution steps only (Review & Final own theirs) */}
+      {step < reviewStep && (
         <div className="mt-6 flex gap-3">
           <button
             type="button"

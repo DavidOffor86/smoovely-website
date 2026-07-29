@@ -6,6 +6,9 @@ import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
+import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
+import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
+import ReviewSummary from "./quote/ReviewSummary";
 
 /* ---------------------------------------------------------------------------
  * Home & Site Clearance flow for the QuickMove Quote configurator.
@@ -214,9 +217,13 @@ export default function ClearanceFlow({ onBack }) {
     flexible: "Yes",
     urgency: "Standard",
     photos: [],
+    ...ATTRIBUTION_DEFAULTS,
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
+  useReferralParam(setForm);
 
   // Server-authoritative quote (single-postcode service → travel £0 in Phase 1).
   const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
@@ -248,17 +255,116 @@ export default function ClearanceFlow({ onBack }) {
     showComplexity && "complexity",
     "timeline",
     "upload",
+    "leadAttribution",
     "review",
+    "final",
   ].filter(Boolean);
 
   const totalSteps = steps.length;
   const current = steps[step - 1];
-  const isLast = step === totalSteps;
 
   const detailsValid = form.postcode && form.email;
-  const canContinue = current !== "contact" || detailsValid;
+  const canContinue =
+    (current !== "contact" || detailsValid) &&
+    (current !== "leadAttribution" || !!form.leadSource);
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
+
+  // Standardised Review Summary sections (empty rows are dropped downstream).
+  const contentList = contentTypes
+    .filter((c) => form.content[c.key])
+    .map((c) => c.label)
+    .join(", ");
+  const specialList = specialItems
+    .filter((s) => form.special[s.key])
+    .map((s) => s.label)
+    .join(", ");
+  const siteWasteList = siteWasteTypes
+    .filter((s) => form.siteWaste[s.key])
+    .map((s) => s.label)
+    .join(", ");
+  const wasteDescription = [
+    contentList,
+    specialList,
+    siteWasteList,
+    form.specialDetail,
+    form.siteVolume,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const servicesList = additionalServices
+    .filter((a) => form.services[a.key])
+    .map((a) => a.label)
+    .join(", ");
+  const complexityList = complexityFactors
+    .filter((c) => form.complexity[c.key])
+    .map((c) => c.label)
+    .join(", ");
+  const accessInfo = [
+    `Parking: ${form.parking}`,
+    `Distance: ${form.distance}`,
+    form.floor && `Floor: ${form.floor}`,
+    `Lift: ${form.lift}`,
+    `Stairs: ${form.stairs}`,
+    form.access.narrow && "Narrow access",
+    form.access.restricted && "Restricted entry",
+    form.access.permit && "Permit required",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const reviewSections = [
+    {
+      title: "Service Details",
+      rows: [
+        { label: "Service", value: "Clearance & Disposal" },
+        { label: "Clearance Type", value: form.clearanceType },
+        { label: "Property Size", value: form.propertySize },
+        { label: "Load Size", value: form.loadSize },
+        { label: "Job Condition", value: form.condition },
+        { label: "Disposal", value: form.disposal },
+        { label: "Skip Required", value: form.skip },
+        { label: "Recycling Priority", value: form.recyclingPriority },
+        { label: "Additional Services", value: servicesList },
+        { label: "Complexity", value: complexityList },
+        { label: "Urgency", value: form.urgency },
+      ],
+    },
+    {
+      title: "Location Details",
+      rows: [{ label: "Collection Property Postcode", value: form.postcode }],
+    },
+    {
+      title: "Contact Details",
+      rows: [
+        { label: "Name", value: form.name },
+        { label: "Phone", value: form.phone },
+        { label: "Email", value: form.email },
+      ],
+    },
+    {
+      title: "Lead Attribution",
+      rows: [
+        { label: "Lead Source", value: form.leadSource },
+        { label: "Referrer Name", value: form.referrerName },
+        { label: "Lead Source Code", value: form.leadSourceCode },
+      ],
+    },
+    {
+      title: "Additional Information",
+      rows: [
+        { label: "Waste Description", value: wasteDescription },
+        { label: "Access Information", value: accessInfo },
+        {
+          label: "Preferred Date",
+          value: form.date ? `${form.date} (Flexible: ${form.flexible})` : "",
+        },
+        {
+          label: "Photos",
+          value: form.photos.length ? `${form.photos.length} attached` : "",
+        },
+      ],
+    },
+  ];
 
   // Internal pricing flags — Total = Labour + Disposal + Transport + Complexity
   const buildPricingFlags = () => {
@@ -419,7 +525,7 @@ export default function ClearanceFlow({ onBack }) {
           {current === "content" && (
             <div>
               <h2 className="mb-4 text-center font-semibold text-gray-800">
-                What's being cleared?
+                What&apos;s being cleared?
               </h2>
               <CheckGrid
                 options={contentTypes}
@@ -701,8 +807,43 @@ export default function ClearanceFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP — Review & submit */}
+          {/* STEP — Lead Attribution */}
+          {current === "leadAttribution" && (
+            <LeadAttributionStep
+              leadSource={form.leadSource}
+              referrerName={form.referrerName}
+              onChange={set}
+            />
+          )}
+
+          {/* STEP — Review Summary (submission happens here) */}
           {current === "review" && (
+            <ReviewSummary sections={reviewSections}>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+                >
+                  Back
+                </button>
+                <div className="flex-1">
+                  <SubmitQuoteButton
+                    service="Clearance & Disposal"
+                    form={form}
+                    estimate={estimate}
+                    distanceMiles={distanceMiles}
+                    travelComponent={travelComponent}
+                    label="Get My Clearance Quote"
+                    onSuccess={goNext}
+                  />
+                </div>
+              </div>
+            </ReviewSummary>
+          )}
+
+          {/* STEP — Final estimate & confirmation */}
+          {current === "final" && (
             <div
               className="text-center"
               data-pricing-flags={buildPricingFlags().join(",")}
@@ -716,31 +857,10 @@ export default function ClearanceFlow({ onBack }) {
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · final price confirmed on site assessment
               </p>
-              <div className="mb-4 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
-                <p>
-                  <span className="font-semibold">Type:</span>{" "}
-                  {form.clearanceType || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Size:</span>{" "}
-                  {form.propertySize || form.loadSize || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Condition:</span>{" "}
-                  {form.condition || "—"}
-                </p>
+              <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
+                ✅ Thank you — your request has been sent. Our team will be in
+                touch shortly to confirm your quote.
               </div>
-              <p className="mb-5 text-xs italic text-gray-500">
-                We handle clearances efficiently, safely, and responsibly.
-              </p>
-              <SubmitQuoteButton
-                service="Clearance & Disposal"
-                form={form}
-                estimate={estimate}
-                distanceMiles={distanceMiles}
-                travelComponent={travelComponent}
-                label="Get My Clearance Quote"
-              />
               <button
                 type="button"
                 onClick={goBack}
@@ -758,8 +878,8 @@ export default function ClearanceFlow({ onBack }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
-      {!isLast && (
+      {/* Navigation — capture + attribution steps only (Review & Final own theirs) */}
+      {current !== "review" && current !== "final" && (
         <div className="mt-6 flex gap-3">
           <button
             type="button"

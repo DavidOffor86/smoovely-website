@@ -15,6 +15,7 @@ export default function SubmitQuoteButton({
   distanceMiles = null,
   travelComponent = null,
   label = "Get My Quote",
+  onSuccess,
 }) {
   const [status, setStatus] = useState("idle"); // idle | sending | done | error
 
@@ -48,6 +49,8 @@ export default function SubmitQuoteButton({
       if (!res.ok) throw new Error(`Submission failed (${res.status})`);
       console.log("[SubmitQuoteButton] 4. success");
       setStatus("done");
+      // Let the flow advance to its final/confirmation screen if it wants to.
+      if (typeof onSuccess === "function") onSuccess();
     } catch (err) {
       // Surface the real reason instead of swallowing it.
       console.error("[SubmitQuoteButton] submit failed:", err);

@@ -6,6 +6,9 @@ import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
+import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
+import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
+import ReviewSummary from "./quote/ReviewSummary";
 
 /* ---------------------------------------------------------------------------
  * Enhanced B2B Delivery & Logistics flow for the QuickMove Quote configurator.
@@ -150,6 +153,7 @@ export default function B2BLogisticsFlow({ onBack }) {
   const [form, setForm] = useState({
     pickupPostcode: "",
     deliveryPostcode: "",
+    companyName: "",
     name: "",
     phone: "",
     email: "",
@@ -172,9 +176,13 @@ export default function B2BLogisticsFlow({ onBack }) {
     timeSlot: "Flexible",
     urgency: "Scheduled",
     factors: {},
+    ...ATTRIBUTION_DEFAULTS,
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
+  useReferralParam(setForm);
 
   // Server-authoritative quote (service + travel computed in /api/price).
   const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
@@ -193,7 +201,14 @@ export default function B2BLogisticsFlow({ onBack }) {
     form.goods.highValue ||
     form.goods.medical;
 
-  const totalSteps = showComplexity ? 9 : 8;
+  // Capture steps run 1..captureCount (step 8 = Complexity only when
+  // triggered). Then: Lead Attribution → Review Summary → Final. No customer
+  // reaches "Get My Quote" without passing through the Review Summary.
+  const captureCount = showComplexity ? 8 : 7;
+  const leadStep = captureCount + 1;
+  const reviewStep = captureCount + 2;
+  const finalStep = captureCount + 3;
+  const totalSteps = finalStep;
 
   // Internal pricing tags — structured for a future engine:
   // Total = (Base + Labour + Distance + Surcharges) × Margin
@@ -216,9 +231,78 @@ export default function B2BLogisticsFlow({ onBack }) {
   // Pricing is server-authoritative — computed in pricing.server.js via
   // /api/price (see useServerQuote above). No pricing constants on the client.
 
-  const canContinue = step !== 1 || detailsValid;
+  const canContinue =
+    (step !== 1 || detailsValid) && (step !== leadStep || !!form.leadSource);
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
+
+  // Standardised Review Summary sections (empty rows are dropped downstream).
+  const goodsList = goodsTypes
+    .filter((g) => form.goods[g.key])
+    .map((g) => g.label)
+    .join(", ");
+  const factorsList = complexityFactors
+    .filter((f) => form.factors[f.key])
+    .map((f) => f.label)
+    .join(", ");
+  const loadDesc =
+    form.loadKind === "Palletised"
+      ? `${form.pallets} pallet(s)${form.stackable === "Yes" ? ", stackable" : ""}`
+      : `${form.looseSize} loose`;
+  const serviceRequirements = [
+    `${form.serviceLevel} service`,
+    form.urgency,
+    form.timeSlot && `${form.timeSlot} slot`,
+    factorsList,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const reviewSections = [
+    {
+      title: "Service Details",
+      rows: [
+        { label: "Service", value: "B2B Delivery & Logistics" },
+        { label: "Delivery Type", value: form.deliveryType },
+        { label: "Site Type", value: form.siteType },
+        { label: "Vehicle", value: form.vehicleSize },
+        { label: "Load", value: loadDesc },
+        { label: "Goods", value: goodsList },
+        { label: "Service Requirements", value: serviceRequirements },
+      ],
+    },
+    {
+      title: "Location Details",
+      rows: [
+        { label: "Collection Postcode", value: form.pickupPostcode },
+        { label: "Delivery Postcode", value: form.deliveryPostcode },
+        {
+          label: "Distance",
+          value: distanceMiles != null ? `${distanceMiles} miles` : "",
+        },
+      ],
+    },
+    {
+      title: "Contact Details",
+      rows: [
+        { label: "Company Name", value: form.companyName },
+        { label: "Contact Name", value: form.name },
+        { label: "Phone", value: form.phone },
+        { label: "Email", value: form.email },
+      ],
+    },
+    {
+      title: "Lead Attribution",
+      rows: [
+        { label: "Lead Source", value: form.leadSource },
+        { label: "Referrer Name", value: form.referrerName },
+        { label: "Lead Source Code", value: form.leadSourceCode },
+      ],
+    },
+    {
+      title: "Additional Information",
+      rows: [{ label: "Delivery Date", value: form.date }],
+    },
+  ];
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -264,7 +348,15 @@ export default function B2BLogisticsFlow({ onBack }) {
                   />
                 </Field>
               </div>
-              <Field label="Full Name">
+              <Field label="Company Name">
+                <input
+                  className="w-full rounded-lg border border-gray-300 p-3"
+                  placeholder="Company name"
+                  value={form.companyName}
+                  onChange={(e) => set("companyName", e.target.value)}
+                />
+              </Field>
+              <Field label="Contact Name">
                 <input
                   className="w-full rounded-lg border border-gray-300 p-3"
                   placeholder="Your full name"
@@ -587,8 +679,43 @@ export default function B2BLogisticsFlow({ onBack }) {
             </div>
           )}
 
-          {/* REVIEW & submit (always final step) */}
-          {step === totalSteps && (
+          {/* LEAD ATTRIBUTION */}
+          {step === leadStep && (
+            <LeadAttributionStep
+              leadSource={form.leadSource}
+              referrerName={form.referrerName}
+              onChange={set}
+            />
+          )}
+
+          {/* REVIEW SUMMARY — submission happens here */}
+          {step === reviewStep && (
+            <ReviewSummary sections={reviewSections}>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+                >
+                  Back
+                </button>
+                <div className="flex-1">
+                  <SubmitQuoteButton
+                    service="B2B Delivery & Logistics"
+                    form={form}
+                    estimate={estimate}
+                    distanceMiles={distanceMiles}
+                    travelComponent={travelComponent}
+                    label="Get My Quote"
+                    onSuccess={() => setStep(finalStep)}
+                  />
+                </div>
+              </div>
+            </ReviewSummary>
+          )}
+
+          {/* FINAL — estimate & confirmation */}
+          {step === finalStep && (
             <div
               className="text-center"
               data-pricing-flags={buildPricingFlags().join(",")}
@@ -602,39 +729,10 @@ export default function B2BLogisticsFlow({ onBack }) {
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · confirmed once route &amp; load are reviewed
               </p>
-              <div className="mb-4 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
-                <p>
-                  <span className="font-semibold">Route:</span>{" "}
-                  {form.pickupPostcode || "—"} → {form.deliveryPostcode || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Type:</span>{" "}
-                  {form.deliveryType || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Vehicle / load:</span>{" "}
-                  {form.vehicleSize} ·{" "}
-                  {form.loadKind === "Palletised"
-                    ? `${form.pallets} pallet(s)`
-                    : `${form.looseSize} loose`}
-                </p>
-                <p>
-                  <span className="font-semibold">Service / urgency:</span>{" "}
-                  {form.serviceLevel} · {form.urgency}
-                </p>
+              <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
+                ✅ Thank you — your request has been sent. Our team will be in
+                touch shortly to confirm your quote.
               </div>
-              <p className="mb-5 text-xs italic text-gray-500">
-                We deliver structured, reliable logistics solutions tailored to
-                your business needs.
-              </p>
-              <SubmitQuoteButton
-                service="B2B Delivery & Logistics"
-                form={form}
-                estimate={estimate}
-                distanceMiles={distanceMiles}
-                travelComponent={travelComponent}
-                label="Get My Quote"
-              />
               <button
                 type="button"
                 onClick={goBack}
@@ -652,8 +750,8 @@ export default function B2BLogisticsFlow({ onBack }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
-      {step < totalSteps && (
+      {/* Navigation — capture + attribution steps only (Review & Final own theirs) */}
+      {step < reviewStep && (
         <div className="mt-6 flex gap-3">
           <button
             type="button"

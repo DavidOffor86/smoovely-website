@@ -6,6 +6,9 @@ import DiscountEligibility from "./DiscountEligibility";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
 import { ROOMS, ROOM_ORDER, summariseInventory } from "../lib/homeInventory";
+import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
+import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
+import ReviewSummary from "./quote/ReviewSummary";
 
 /* ---------------------------------------------------------------------------
  * Home Removals flow (room-based inventory model).
@@ -36,10 +39,12 @@ const PROPERTY_TYPES = [
   { id: "4+ Bedroom Property", label: "4+ Bedroom Property", image: "/images/House Icons Configurator/4 Bedroom House.jpg" },
 ];
 
-// Steps 1–11 capture inputs; step 12 is the Review Summary; step 13 is the
-// final quote screen. The lead submission fires on "Get My Quote" (step 12).
-const TOTAL_STEPS = 13;
-const REVIEW_STEP = 12;
+// Steps 1–11 capture inputs; step 12 is Lead Attribution; step 13 is the
+// Review Summary; step 14 is the final quote screen. The lead submission fires
+// on "Get My Quote" (step 13, the Review Summary).
+const TOTAL_STEPS = 14;
+const REVIEW_STEP = 13;
+const LEAD_STEP = 12;
 
 const stepMotion = {
   initial: { opacity: 0, x: 24 },
@@ -140,19 +145,6 @@ function BreakdownRow({ label, value, muted }) {
   );
 }
 
-// Read-only label/value row for the Review Summary. Values wrap and align right
-// so long inventory/room lists stay readable on mobile.
-function SummaryRow({ label, value }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-gray-100 py-2 last:border-0">
-      <span className="shrink-0 font-medium text-gray-600">{label}</span>
-      <span className="whitespace-pre-line text-right font-semibold text-gray-900">
-        {value == null || value === "" ? "—" : value}
-      </span>
-    </div>
-  );
-}
-
 export default function HomeRemovalsFlow({ onBack }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -177,9 +169,13 @@ export default function HomeRemovalsFlow({ onBack }) {
     moveDate: "",
     moveFlexibility: "Flexible",
     customerBudget: "",
+    ...ATTRIBUTION_DEFAULTS,
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
+  useReferralParam(setForm);
 
   // Lead submission state. "Get My Quote" (Review Summary) fires the email,
   // lead capture, Power Automate submission and server-side quote generation.
@@ -227,7 +223,84 @@ export default function HomeRemovalsFlow({ onBack }) {
     setForm((f) => ({ ...f, specialHandling: { ...f.specialHandling, [key]: !f.specialHandling[key] } }));
 
   const activeRooms = ROOM_KEYS.filter((k) => form.selectedRooms[k]);
-  const canContinue = step !== 1 || detailsValid;
+  const canContinue =
+    (step !== 1 || detailsValid) && (step !== LEAD_STEP || !!form.leadSource);
+
+  // Standardised Review Summary sections (empty rows are dropped downstream).
+  const packingList = Object.keys(form.packing)
+    .filter((k) => form.packing[k])
+    .join(", ");
+  const specialList = Object.keys(form.specialHandling)
+    .filter((k) => form.specialHandling[k])
+    .join(", ");
+  const accessStr = (a) => `${a.floor} · Parking: ${a.parking}`;
+  const reviewSections = [
+    {
+      title: "Service Details",
+      rows: [
+        { label: "Service", value: "Home Removals" },
+        { label: "Property Type", value: form.propertyType },
+        {
+          label: "Rooms",
+          value: activeRooms.map((k) => roomsCatalog[k].label).join(", "),
+        },
+        { label: "Inventory", value: summariseInventory(form) },
+        { label: "Boxes", value: form.boxes ? String(form.boxes) : "" },
+        { label: "Bags", value: form.bags ? String(form.bags) : "" },
+        { label: "Suitcases", value: form.suitcases ? String(form.suitcases) : "" },
+        { label: "High Value Level", value: form.highValue },
+        { label: "Fragile Level", value: form.fragileLevel },
+        { label: "Packing Requirements", value: packingList },
+        {
+          label: "Special Handling",
+          value:
+            specialList +
+            (form.specialHandlingOther ? ` (${form.specialHandlingOther})` : ""),
+        },
+      ],
+    },
+    {
+      title: "Location Details",
+      rows: [
+        { label: "Pickup Postcode", value: form.pickupPostcode },
+        { label: "Destination Postcode", value: form.destPostcode },
+        { label: "Pickup Access", value: accessStr(form.pickup) },
+        { label: "Drop-off Access", value: accessStr(form.dropoff) },
+        {
+          label: "Distance",
+          value: distanceMiles != null ? `${distanceMiles} miles` : "",
+        },
+      ],
+    },
+    {
+      title: "Contact Details",
+      rows: [
+        { label: "Name", value: form.name },
+        { label: "Phone", value: form.phone },
+        { label: "Email", value: form.email },
+      ],
+    },
+    {
+      title: "Lead Attribution",
+      rows: [
+        { label: "Lead Source", value: form.leadSource },
+        { label: "Referrer Name", value: form.referrerName },
+        { label: "Lead Source Code", value: form.leadSourceCode },
+      ],
+    },
+    {
+      title: "Additional Information",
+      rows: [
+        {
+          label: "Move Date",
+          value: form.moveDate
+            ? `${form.moveDate} (${form.moveFlexibility})`
+            : `Flexible (${form.moveFlexibility})`,
+        },
+        { label: "Budget", value: form.customerBudget },
+      ],
+    },
+  ];
 
   const goNext = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
@@ -654,60 +727,18 @@ export default function HomeRemovalsFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 12 — Review Summary */}
+          {/* STEP 12 — Lead Attribution */}
           {step === 12 && (
-            <div>
-              <h2 className="mb-1 text-center font-semibold text-gray-800">
-                Review your details
-              </h2>
-              <p className="mb-4 text-center text-xs text-gray-500">
-                Check everything below, then get your quote. You can go back to
-                change any answer.
-              </p>
+            <LeadAttributionStep
+              leadSource={form.leadSource}
+              referrerName={form.referrerName}
+              onChange={set}
+            />
+          )}
 
-              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
-                <SummaryRow label="Service" value="Home Removals" />
-                <SummaryRow label="Property Type" value={form.propertyType} />
-                <SummaryRow
-                  label="Rooms"
-                  value={activeRooms.map((k) => roomsCatalog[k].label).join(", ")}
-                />
-                <SummaryRow label="Inventory" value={summariseInventory(form)} />
-                <SummaryRow label="Boxes" value={String(form.boxes || 0)} />
-                <SummaryRow label="Bags" value={String(form.bags || 0)} />
-                <SummaryRow label="Suitcases" value={String(form.suitcases || 0)} />
-                <SummaryRow
-                  label="Move Date"
-                  value={
-                    form.moveDate
-                      ? `${form.moveDate} (${form.moveFlexibility})`
-                      : `Flexible (${form.moveFlexibility})`
-                  }
-                />
-                <SummaryRow
-                  label="Distance"
-                  value={
-                    distanceMiles != null
-                      ? `${distanceMiles} miles`
-                      : "Local / included"
-                  }
-                />
-                <SummaryRow label="High Value Level" value={form.highValue} />
-                <SummaryRow label="Fragile Level" value={form.fragileLevel} />
-                <SummaryRow
-                  label="Packing Requirements"
-                  value={
-                    Object.keys(form.packing).filter((k) => form.packing[k]).join(", ") ||
-                    "None"
-                  }
-                />
-                <SummaryRow
-                  label="Vehicle Recommendation"
-                  value={vehicleRecommendation}
-                />
-                <SummaryRow label="Crew Recommendation" value={crewRecommendation} />
-              </div>
-
+          {/* STEP 13 — Review Summary */}
+          {step === 13 && (
+            <ReviewSummary sections={reviewSections}>
               {customQuoteRequired && (
                 <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
                   ⚠ Custom Quote Required — submit your details and our team will
@@ -737,11 +768,11 @@ export default function HomeRemovalsFlow({ onBack }) {
                   Something went wrong. Please try again, or call us to confirm.
                 </p>
               )}
-            </div>
+            </ReviewSummary>
           )}
 
-          {/* STEP 13 — Final quote & breakdown */}
-          {step === 13 && (
+          {/* STEP 14 — Final quote & breakdown */}
+          {step === 14 && (
             <div className="text-center">
               <h2 className="mb-1 text-sm font-medium text-gray-500">Your estimated quote</h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">
@@ -775,8 +806,8 @@ export default function HomeRemovalsFlow({ onBack }) {
               )}
 
               <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
-                ✅ Request sent — our team will be in touch shortly to confirm your
-                quote.
+                ✅ Thank you — your request has been sent. Our team will be in
+                touch shortly to confirm your quote.
               </div>
               <button
                 type="button"

@@ -70,6 +70,13 @@ export function buildQuoteRecord({ service, contact = {}, details = {}, quote = 
     deliveryFloor: details.dropoff?.floor || "",
 
     inventorySummary: summariseInventory(details),
+
+    // Lead attribution (applies to every configurator). Captured after contact
+    // details, before the review summary. leadSourceCode carries any ?ref= code.
+    leadSource: details.leadSource || "",
+    referrerName: (details.referrerName || "").trim(),
+    leadSourceCode: (details.leadSourceCode || "").trim(),
+
     source: details.source || "quote-configurator",
   };
 }
@@ -103,6 +110,9 @@ export function buildQuoteEmailText(record) {
     parts.push(`Move Date:\n${record.moveDate || "Flexible"} (${record.moveFlexibility || "Flexible"})\n`);
   }
   if (record.customerBudget) parts.push(`Budget:\n${record.customerBudget}\n`);
+  if (record.leadSource) parts.push(`Lead Source:\n${record.leadSource}\n`);
+  if (record.referrerName) parts.push(`Referrer Name:\n${record.referrerName}\n`);
+  if (record.leadSourceCode) parts.push(`Lead Source Code:\n${record.leadSourceCode}\n`);
   if (record.quoteVersion) parts.push(`Quote Version:\n${record.quoteVersion}\n`);
   if (record.pricingVersion) parts.push(`Pricing Version:\n${record.pricingVersion}\n`);
   if (record.inventorySummary) parts.push(`Inventory Summary:\n${record.inventorySummary}\n`);

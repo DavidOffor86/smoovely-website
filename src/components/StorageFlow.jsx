@@ -6,6 +6,9 @@ import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
 import { formatRange } from "../lib/pricing";
 import { useServerQuote } from "../lib/useServerQuote";
+import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
+import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
+import ReviewSummary from "./quote/ReviewSummary";
 
 /* ---------------------------------------------------------------------------
  * Storage Services flow for the QuickMove Quote configurator.
@@ -213,9 +216,13 @@ export default function StorageFlow({ onBack }) {
     returnPostcode: "",
     condition: "",
     complexity: {},
+    ...ATTRIBUTION_DEFAULTS,
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
+  useReferralParam(setForm);
 
   // Server-authoritative quote (single-postcode service → travel £0 in Phase 1).
   const { estimate, distanceMiles, travelComponent, loading } = useServerQuote(
@@ -248,17 +255,125 @@ export default function StorageFlow({ onBack }) {
     "returnDelivery",
     "condition",
     showComplexity && "complexity",
+    "leadAttribution",
     "review",
+    "final",
   ].filter(Boolean);
 
   const totalSteps = steps.length;
   const current = steps[step - 1];
-  const isLast = step === totalSteps;
 
   const detailsValid = !!form.email;
-  const canContinue = current !== "contact" || detailsValid;
+  const canContinue =
+    (current !== "contact" || detailsValid) &&
+    (current !== "leadAttribution" || !!form.leadSource);
   const goNext = () => setStep((s) => Math.min(s + 1, totalSteps));
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
+
+  // Standardised Review Summary sections (empty rows are dropped downstream).
+  const invList = inventoryItems
+    .filter((i) => form.inventory[i.key])
+    .map((i) => i.label)
+    .join(", ");
+  const specialList = specialHandling
+    .filter((s) => form.special[s.key])
+    .map((s) => s.label)
+    .join(", ");
+  const packingList = packingOptions
+    .filter((p) => form.packing[p.key])
+    .map((p) => p.label)
+    .join(", ");
+  const complexityList = complexityFactors
+    .filter((c) => form.complexity[c.key])
+    .map((c) => c.label)
+    .join(", ");
+  const collectionAccess = showAccess
+    ? [
+        `Parking: ${form.parking}`,
+        `Distance: ${form.distance}`,
+        form.floor && `Floor: ${form.floor}`,
+        `Lift: ${form.lift}`,
+        `Stairs: ${form.stairs}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  const reviewSections = [
+    {
+      title: "Service Details",
+      rows: [
+        { label: "Service", value: "Storage Solutions" },
+        { label: "Collection Requirement", value: form.serviceType },
+        { label: "Storage Size", value: form.size || form.vanLoad },
+        { label: "Storage Type", value: form.storagePlace },
+        { label: "Climate-Controlled", value: form.climate },
+        { label: "Pallet Storage", value: form.pallet },
+        {
+          label: "Storage Duration",
+          value: form.duration
+            ? `${form.duration} (Flexible: ${form.flexible})`
+            : "",
+        },
+        {
+          label: "Inventory",
+          value: [
+            invList,
+            form.boxesQty ? `${form.boxesQty} boxes` : "",
+            form.otherItems,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        },
+        {
+          label: "Special Handling",
+          value: [specialList, form.specialDetail].filter(Boolean).join(" · "),
+        },
+        {
+          label: "Packing",
+          value: [packingList, form.packingDetail].filter(Boolean).join(" · "),
+        },
+        { label: "Dismantling", value: form.dismantling },
+        { label: "Reassembly", value: form.reassembly },
+        { label: "Item Condition", value: form.condition },
+        { label: "Complexity", value: complexityList },
+      ],
+    },
+    {
+      title: "Location Details",
+      rows: [
+        { label: "Collection Postcode", value: form.postcode },
+        { label: "Storage Destination Postcode", value: form.returnPostcode },
+      ],
+    },
+    {
+      title: "Contact Details",
+      rows: [
+        { label: "Name", value: form.name },
+        { label: "Phone", value: form.phone },
+        { label: "Email", value: form.email },
+      ],
+    },
+    {
+      title: "Lead Attribution",
+      rows: [
+        { label: "Lead Source", value: form.leadSource },
+        { label: "Referrer Name", value: form.referrerName },
+        { label: "Lead Source Code", value: form.leadSourceCode },
+      ],
+    },
+    {
+      title: "Additional Information",
+      rows: [
+        {
+          label: "Access During Storage",
+          value:
+            form.accessNeeded === "Yes" ? `Yes (${form.accessFreq})` : form.accessNeeded,
+        },
+        { label: "Return Delivery", value: form.returnDelivery },
+        { label: "Collection Access", value: collectionAccess },
+      ],
+    },
+  ];
 
   // Internal pricing flags — Total = Storage + Labour + Transport + Services + Complexity
   const buildPricingFlags = () => {
@@ -740,8 +855,43 @@ export default function StorageFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP — Review & submit */}
+          {/* STEP — Lead Attribution */}
+          {current === "leadAttribution" && (
+            <LeadAttributionStep
+              leadSource={form.leadSource}
+              referrerName={form.referrerName}
+              onChange={set}
+            />
+          )}
+
+          {/* STEP — Review Summary (submission happens here) */}
           {current === "review" && (
+            <ReviewSummary sections={reviewSections}>
+              <div className="mt-6 flex gap-3">
+                <button
+                  type="button"
+                  onClick={goBack}
+                  className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+                >
+                  Back
+                </button>
+                <div className="flex-1">
+                  <SubmitQuoteButton
+                    service="Storage Solutions"
+                    form={form}
+                    estimate={estimate}
+                    distanceMiles={distanceMiles}
+                    travelComponent={travelComponent}
+                    label="Get My Storage Quote"
+                    onSuccess={goNext}
+                  />
+                </div>
+              </div>
+            </ReviewSummary>
+          )}
+
+          {/* STEP — Final estimate & confirmation */}
+          {current === "final" && (
             <div
               className="text-center"
               data-pricing-flags={buildPricingFlags().join(",")}
@@ -755,32 +905,10 @@ export default function StorageFlow({ onBack }) {
               <p className="mb-4 text-xs text-gray-500">
                 Estimated range · storage billed per month, confirmed on enquiry
               </p>
-              <div className="mb-4 rounded-lg bg-gray-50 p-4 text-left text-xs text-gray-600">
-                <p>
-                  <span className="font-semibold">Size:</span>{" "}
-                  {form.size || form.vanLoad || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Duration:</span>{" "}
-                  {form.duration || "—"}
-                </p>
-                <p>
-                  <span className="font-semibold">Service:</span>{" "}
-                  {form.serviceType || "—"}
-                </p>
+              <div className="w-full rounded-lg bg-green-50 px-6 py-3 text-center text-sm font-semibold text-green-800 ring-1 ring-green-200">
+                ✅ Thank you — your request has been sent. Our team will be in
+                touch shortly to confirm your quote.
               </div>
-              <p className="mb-5 text-xs italic text-gray-500">
-                We provide secure, flexible storage solutions tailored to your
-                needs.
-              </p>
-              <SubmitQuoteButton
-                service="Storage Solutions"
-                form={form}
-                estimate={estimate}
-                distanceMiles={distanceMiles}
-                travelComponent={travelComponent}
-                label="Get My Storage Quote"
-              />
               <button
                 type="button"
                 onClick={goBack}
@@ -798,8 +926,8 @@ export default function StorageFlow({ onBack }) {
         </motion.div>
       </AnimatePresence>
 
-      {/* Navigation */}
-      {!isLast && (
+      {/* Navigation — capture + attribution steps only (Review & Final own theirs) */}
+      {current !== "review" && current !== "final" && (
         <div className="mt-6 flex gap-3">
           <button
             type="button"
