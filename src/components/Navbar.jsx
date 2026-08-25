@@ -30,6 +30,7 @@ const navLinks = [
       { href: "/industries#corporate", label: "Corporate" },
     ],
   },
+  { href: "/housing-partners", label: "Housing" },
   { href: "/careers", label: "Careers" },
   { href: "/contact", label: "Contact" },
 ];

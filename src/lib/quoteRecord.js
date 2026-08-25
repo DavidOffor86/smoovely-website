@@ -69,6 +69,15 @@ export function buildQuoteRecord({ service, contact = {}, details = {}, quote = 
     pickupFloor: details.pickup?.floor || "",
     deliveryFloor: details.dropoff?.floor || "",
 
+    // Location postcodes — already captured by the configurators and sent in
+    // `details`; surfaced here so they appear in the flat record, Power Automate
+    // columns and the notification email. No new form fields are introduced.
+    pickupPostcode: details.pickupPostcode || "",
+    destPostcode: details.destPostcode || "",
+    deliveryPostcode: details.deliveryPostcode || "",
+    collectionPostcode: details.postcode || "",
+    returnPostcode: details.returnPostcode || "",
+
     inventorySummary: summariseInventory(details),
 
     // Lead attribution (applies to every configurator). Captured after contact
@@ -94,6 +103,12 @@ export function buildQuoteEmailText(record) {
   }
   parts.push(`Service:\n${record.service}\n`);
   if (record.propertyType) parts.push(`Property Type:\n${record.propertyType}\n`);
+  // Location postcodes — only shown when present (varies per service).
+  if (record.pickupPostcode) parts.push(`Pickup Postcode:\n${record.pickupPostcode}\n`);
+  if (record.collectionPostcode) parts.push(`Collection Postcode:\n${record.collectionPostcode}\n`);
+  if (record.destPostcode) parts.push(`Drop-off Postcode:\n${record.destPostcode}\n`);
+  if (record.deliveryPostcode) parts.push(`Delivery Postcode:\n${record.deliveryPostcode}\n`);
+  if (record.returnPostcode) parts.push(`Return Postcode:\n${record.returnPostcode}\n`);
   parts.push(`Distance:\n${dist}\n`);
   parts.push(`Vehicle:\n${record.vehicleRecommendation || "—"}\n`);
   parts.push(`Crew:\n${record.crewRecommendation || "—"}\n`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const roles = [
   { title: "Drivers", desc: "Multi-drop, removals and same-day routes." },
@@ -31,7 +31,40 @@ const Check = (
 );
 
 export default function CareersSection() {
-  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: roles[0].title,
+  });
+  const fileRef = useRef(null);
+  const [status, setStatus] = useState("idle"); // idle | sending | done | error
+  const sent = status === "done";
+
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (status === "sending") return;
+    setStatus("sending");
+    try {
+      const fd = new FormData();
+      fd.append("name", form.name);
+      fd.append("email", form.email);
+      fd.append("phone", form.phone);
+      fd.append("role", form.role);
+      const file = fileRef.current?.files?.[0];
+      if (file) fd.append("cv", file);
+
+      // Do NOT set Content-Type — the browser adds the multipart boundary.
+      const res = await fetch("/api/careers", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(`Submission failed (${res.status})`);
+      setStatus("done");
+    } catch (err) {
+      console.error("[CareersSection] submit failed:", err);
+      setStatus("error");
+    }
+  };
 
   return (
     <section id="careers" className="scroll-mt-20 bg-white py-20 lg:py-24">
@@ -97,13 +130,7 @@ export default function CareersSection() {
                 </p>
               </div>
             ) : (
-              <form
-                className="mt-6 space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setSent(true);
-                }}
-              >
+              <form className="mt-6 space-y-4" onSubmit={onSubmit}>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-1 block text-sm font-medium text-slate-700">
@@ -113,6 +140,8 @@ export default function CareersSection() {
                       required
                       className="w-full rounded-lg border border-slate-300 p-3 text-sm"
                       placeholder="Your name"
+                      value={form.name}
+                      onChange={(e) => set("name", e.target.value)}
                     />
                   </label>
                   <label className="block">
@@ -124,6 +153,8 @@ export default function CareersSection() {
                       type="email"
                       className="w-full rounded-lg border border-slate-300 p-3 text-sm"
                       placeholder="you@email.com"
+                      value={form.email}
+                      onChange={(e) => set("email", e.target.value)}
                     />
                   </label>
                 </div>
@@ -136,13 +167,19 @@ export default function CareersSection() {
                       type="tel"
                       className="w-full rounded-lg border border-slate-300 p-3 text-sm"
                       placeholder="07…"
+                      value={form.phone}
+                      onChange={(e) => set("phone", e.target.value)}
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-sm font-medium text-slate-700">
                       Role of interest
                     </span>
-                    <select className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm">
+                    <select
+                      className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"
+                      value={form.role}
+                      onChange={(e) => set("role", e.target.value)}
+                    >
                       {roles.map((r) => (
                         <option key={r.title}>{r.title}</option>
                       ))}
@@ -155,16 +192,24 @@ export default function CareersSection() {
                     Upload CV (optional)
                   </span>
                   <input
+                    ref={fileRef}
                     type="file"
                     accept=".pdf,.doc,.docx"
                     className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-navy file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-navy/90"
                   />
                 </label>
+                {status === "error" && (
+                  <p className="text-sm text-red-500">
+                    Something went wrong sending your application. Please try
+                    again, or email us directly.
+                  </p>
+                )}
                 <button
                   type="submit"
-                  className="w-full rounded-lg bg-green px-6 py-3 text-sm font-semibold text-white shadow-md shadow-green/25 transition hover:bg-green/90"
+                  disabled={status === "sending"}
+                  className="w-full rounded-lg bg-green px-6 py-3 text-sm font-semibold text-white shadow-md shadow-green/25 transition hover:bg-green/90 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Submit application
+                  {status === "sending" ? "Sending…" : "Submit application"}
                 </button>
               </form>
             )}

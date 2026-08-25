@@ -7,6 +7,7 @@ import OfficeMovesFlow from "./components/OfficeMovesFlow";
 import B2BLogisticsFlow from "./components/B2BLogisticsFlow";
 import ClearanceFlow from "./components/ClearanceFlow";
 import StorageFlow from "./components/StorageFlow";
+import HousingFlow from "./components/HousingFlow";
 
 const Button = ({ children, ...props }) => (
   <button
@@ -23,6 +24,7 @@ const services = [
   "B2B Delivery & Logistics",
   "Clearance & Disposal",
   "Storage Solutions",
+  "Housing & Property Services",
 ];
 
 // Bedroom options for the Home Removals "Details" step (values unchanged).
@@ -78,6 +80,8 @@ export default function MultiServicePlatform() {
         <ClearanceFlow onBack={() => setStep(1)} />
       ) : data.service === "Storage Solutions" && step >= 2 ? (
         <StorageFlow onBack={() => setStep(1)} />
+      ) : data.service === "Housing & Property Services" && step >= 2 ? (
+        <HousingFlow onBack={() => setStep(1)} />
       ) : (
       <>
 
