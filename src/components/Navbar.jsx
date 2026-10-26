@@ -16,6 +16,9 @@ const navLinks = [
       { href: "/solutions", label: "B2B Logistics" },
       { href: "/solutions", label: "Storage Services" },
       { href: "/solutions", label: "Clearance" },
+      { href: "/international-relocation", label: "International Relocation" },
+      { href: "/sports-relocation", label: "Sports Relocation" },
+      { href: "/fleet-washing", label: "Fleet Washing Services" },
     ],
   },
   {

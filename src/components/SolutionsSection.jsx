@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import QuoteButton from "./QuoteButton";
 
 const solutions = [
@@ -26,6 +27,21 @@ const solutions = [
     title: "Clearance & Disposal",
     desc: "Fast, responsible clearances with eco-friendly recycling and certified disposal.",
     image: "/images/Home Clearance Image.jpeg",
+  },
+  {
+    title: "Fleet Washing Services",
+    desc: "Professional fleet cleaning — exterior and interior services for commercial vehicles. Powered by EcoFleet Wash.",
+    image: "/images/fleet-washing/fleet-washing-hero.jpg",
+  },
+  {
+    title: "International Relocation",
+    desc: "Full relocation planning and coordination for household moves abroad — shipping, storage, and destination setup.",
+    image: "/images/international-relocation-service-card.jpg",
+  },
+  {
+    title: "Sports Relocation",
+    desc: "Discreet, deadline-aware relocation for athletes, clubs and sporting staff — at home and internationally.",
+    image: "/images/sports-relocation-service-card.jpg",
   },
 ];
 
@@ -70,10 +86,12 @@ export default function SolutionsSection({
               className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:border-green/40 hover:shadow-lg"
             >
               <div className="relative h-48 overflow-hidden">
-                <img
+                <Image
                   src={solution.image}
                   alt={solution.title}
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  fill
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  className="object-cover transition-transform duration-300 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-navy/50 to-transparent" />
               </div>

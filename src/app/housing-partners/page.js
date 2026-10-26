@@ -222,18 +222,27 @@ export default function HousingPartnersPage() {
               title="Support across the property lifecycle"
               subtitle="One coordinated partner for moves, clearance, storage and resident support."
             />
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {SERVICES.map((s) => (
-                <div
-                  key={s.title}
-                  className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
-                >
-                  <h3 className="text-base font-semibold text-navy">{s.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                    {s.body}
-                  </p>
-                </div>
-              ))}
+            <div className="mt-12 grid gap-12 lg:grid-cols-2 lg:items-start">
+              <div className="grid gap-5 sm:grid-cols-2">
+                {SERVICES.map((s) => (
+                  <div
+                    key={s.title}
+                    className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+                  >
+                    <h3 className="text-base font-semibold text-navy">{s.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                      {s.body}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="relative h-96 overflow-hidden rounded-2xl shadow-lg">
+                <img
+                  src="/images/housing-services-action.jpg"
+                  alt="Housing relocation and support services in action"
+                  className="h-full w-full object-cover"
+                />
+              </div>
             </div>
           </div>
         </section>
@@ -346,29 +355,38 @@ export default function HousingPartnersPage() {
               title="Emergency Relocation & Property Support"
               subtitle="When something goes wrong, we mobilise quickly — supporting residents and properties at short notice."
             />
-            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {EMERGENCY_SUPPORT.map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center gap-3 rounded-xl border border-red-100 bg-red-50/40 p-5"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                      aria-hidden="true"
-                    >
-                      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
-                    </svg>
-                  </span>
-                  <span className="text-sm font-semibold text-navy">{item}</span>
-                </div>
-              ))}
+            <div className="mt-12 grid gap-12 lg:grid-cols-2 lg:items-start">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {EMERGENCY_SUPPORT.map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-3 rounded-xl border border-red-100 bg-red-50/40 p-5"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
+                      </svg>
+                    </span>
+                    <span className="text-sm font-semibold text-navy">{item}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="relative h-96 overflow-hidden rounded-2xl shadow-lg">
+                <img
+                  src="/images/housing-emergency-response.jpg"
+                  alt="Emergency response and rapid relocation support"
+                  className="h-full w-full object-cover"
+                />
+              </div>
             </div>
           </div>
         </section>

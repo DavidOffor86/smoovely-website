@@ -29,7 +29,7 @@ export function SummaryRow({ label, value }) {
   );
 }
 
-export default function ReviewSummary({ sections = [], children }) {
+export default function ReviewSummary({ sections = [], overview = null, children }) {
   return (
     <div>
       <h2 className="mb-1 text-center font-semibold text-gray-800">
@@ -39,6 +39,24 @@ export default function ReviewSummary({ sections = [], children }) {
         Check everything below, then get your quote. You can go back to change
         any answer.
       </p>
+
+      {overview && (
+        <div className="mb-6 rounded-lg border-2 border-blue-200 bg-blue-50 p-5">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-700">
+            📋 Quote Overview (Printable)
+          </p>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            {overview.map((item) =>
+              item.value ? (
+                <div key={item.label} className="flex flex-col">
+                  <span className="text-xs font-medium text-gray-600">{item.label}</span>
+                  <span className="font-semibold text-gray-900">{item.value}</span>
+                </div>
+              ) : null
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-3">
         {sections.map((section) => {

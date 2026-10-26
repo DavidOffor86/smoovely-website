@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import SubmitQuoteButton from "./SubmitQuoteButton";
@@ -9,6 +9,8 @@ import { useServerQuote } from "../lib/useServerQuote";
 import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
 import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
 import ReviewSummary from "./quote/ReviewSummary";
+import SpecialItemsSection from "./SpecialItemsSection";
+import PhotoUploadSection from "./PhotoUploadSection";
 
 /* ---------------------------------------------------------------------------
  * Enhanced Office Moves flow for the QuickMove Quote configurator.
@@ -45,13 +47,33 @@ const officeSizes = [
   },
 ];
 
-const inventory = [
+const FURNITURE_ITEMS = [
+  { key: "workstations", label: "Workstations" },
+  { key: "officeChairs", label: "Office Chairs" },
+  { key: "meetingChairs", label: "Meeting Chairs" },
   { key: "desks", label: "Desks" },
-  { key: "chairs", label: "Chairs" },
-  { key: "filing", label: "Filing cabinets" },
-  { key: "it", label: "IT equipment" },
-  { key: "servers", label: "Servers" },
+  { key: "pedestals", label: "Pedestals" },
+  { key: "filingCabinets", label: "Filing Cabinets" },
+  { key: "bookcases", label: "Bookcases" },
+  { key: "storageUnits", label: "Storage Units" },
+  { key: "receptionFurniture", label: "Reception Furniture" },
+];
+
+const TECHNOLOGY_ITEMS = [
+  { key: "monitors", label: "Monitors" },
   { key: "printers", label: "Printers" },
+  { key: "photocopiers", label: "Photocopiers" },
+  { key: "serverCabinets", label: "Server Cabinets" },
+  { key: "networkEquipment", label: "Network Equipment" },
+];
+
+const DISMANTLING_ITEMS = [
+  { key: "workstations", label: "Workstations" },
+  { key: "desks", label: "Desks" },
+  { key: "meetingTables", label: "Meeting Tables" },
+  { key: "storageUnits", label: "Storage Units" },
+  { key: "receptionFurniture", label: "Reception Furniture" },
+  { key: "other", label: "Other" },
 ];
 
 const complexity = [
@@ -208,6 +230,7 @@ function ToggleRow({ label, value, onChange, children }) {
 
 export default function OfficeMovesFlow({ onBack }) {
   const [step, setStep] = useState(1);
+  const [quoteRef, setQuoteRef] = useState(""); // Generated before photo upload
   const [openAccess, setOpenAccess] = useState("pickup"); // first open by default
   const [form, setForm] = useState({
     pickupPostcode: "",
@@ -221,13 +244,17 @@ export default function OfficeMovesFlow({ onBack }) {
     desks: 0,
     employees: "",
     boxes: 0,
-    inventory: {},
+    furnitureInventory: {},
+    technologyInventory: {},
+    dismantlingItems: {},
+    specialItems: [],
+    officePhotos: [],
+    proposalNotes: "",
     pickup: { parking: "Free", lift: "No", stairs: "No" },
     dropoff: { parking: "Free", lift: "No", stairs: "No" },
     movingIT: "No",
     servers: "No",
     packing: "No",
-    dismantling: "No",
     outOfHours: "No",
     oohWindow: "Evenings",
     phased: "No",
@@ -249,6 +276,18 @@ export default function OfficeMovesFlow({ onBack }) {
     ...ATTRIBUTION_DEFAULTS,
   });
 
+  // Generate quote reference on mount for use in photo uploads
+  useEffect(() => {
+    if (!quoteRef) {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+      const seq = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, "0");
+      setQuoteRef(`OM-${dateStr}-${seq}`);
+    }
+  }, [quoteRef]);
+
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
   // Pre-fill lead attribution from a ?ref= referral URL (editable afterwards).
@@ -267,13 +306,13 @@ export default function OfficeMovesFlow({ onBack }) {
     Number(form.desks) > 15 ||
     form.phased === "Yes";
 
-  // Capture steps run 1..captureCount (step 6 = Complexity only when triggered).
-  // Then: Lead Attribution → Review Summary → Final. No customer reaches
-  // "Get My Quote" without passing through the Review Summary.
-  const captureCount = showComplexity ? 6 : 5;
-  const leadStep = captureCount + 1;
-  const reviewStep = captureCount + 2;
-  const finalStep = captureCount + 3;
+  // Steps: 1-3 capture, 4 dismantling, 5 special items, 6 access,
+  // 7 services, 8 complexity (optional), 9 photos, 10 proposal notes,
+  // leadStep lead attribution, reviewStep review, finalStep final.
+  const captureCount = showComplexity ? 10 : 9; // includes optional complexity
+  const leadStep = captureCount + 1; // 11 or 10
+  const reviewStep = captureCount + 2; // 12 or 11
+  const finalStep = captureCount + 3; // 13 or 12
   const totalSteps = finalStep;
 
   const detailsValid =
@@ -307,15 +346,39 @@ export default function OfficeMovesFlow({ onBack }) {
   const goBack = () => (step === 1 ? onBack?.() : setStep((s) => s - 1));
 
   // Standardised Review Summary sections (empty rows are dropped downstream).
-  const invList = inventory
-    .filter((i) => form.inventory[i.key])
-    .map((i) => i.label)
+  const furnitureList = FURNITURE_ITEMS
+    .filter((i) => form.furnitureInventory[i.key] > 0)
+    .map((i) => `${i.label} (${form.furnitureInventory[i.key]})`)
     .join(", ");
+  const technologyList = TECHNOLOGY_ITEMS
+    .filter((i) => form.technologyInventory[i.key] > 0)
+    .map((i) => `${i.label} (${form.technologyInventory[i.key]})`)
+    .join(", ");
+  const specialItemsList = form.specialItems
+    .map((item) => {
+      let desc = item.description || "Unknown";
+      if (item.quantity && item.quantity > 1) desc += ` (qty ${item.quantity})`;
+      const flags = [];
+      if (item.isHeavy === "Yes") flags.push("heavy");
+      if (item.requiresDismantling === "Yes") flags.push("dismantling");
+      if (item.requiresReassembly === "Yes") flags.push("reassembly");
+      if (flags.length) desc += ` [${flags.join(", ")}]`;
+      return desc;
+    })
+    .join(" · ");
+  const dismantlingList = Object.entries(form.dismantlingItems)
+    .filter(([_, v]) => v && v.qty > 0)
+    .map(([key, v]) => {
+      const label = DISMANTLING_ITEMS.find((i) => i.key === key)?.label || key;
+      return `${label} (qty ${v.qty}${
+        v.reassemblyRequired === "Yes" ? ", reassembly required" : ""
+      })`;
+    })
+    .join(" · ");
   const additionalServices = [
     form.movingIT === "Yes" && "Moving IT",
     form.servers === "Yes" && "Server disconnection",
     form.packing === "Yes" && "Packing",
-    form.dismantling === "Yes" && "Dismantling",
     form.outOfHours === "Yes" && `Out-of-hours (${form.oohWindow})`,
     form.phased === "Yes" && `Phased (${form.phases})`,
     form.multiFloor === "Yes" && `Multi-floor (${form.floors})`,
@@ -341,8 +404,16 @@ export default function OfficeMovesFlow({ onBack }) {
         { label: "Desks", value: form.desks ? String(form.desks) : "" },
         { label: "Employee Count", value: form.employees },
         { label: "Boxes", value: form.boxes ? String(form.boxes) : "" },
-        { label: "Inventory", value: invList },
+        { label: "Furniture Inventory", value: furnitureList },
+        { label: "Technology Inventory", value: technologyList },
+        { label: "Special/Oversized Items", value: specialItemsList },
+        { label: "Dismantling & Reassembly", value: dismantlingList },
         { label: "Additional Services", value: additionalServices },
+        {
+          label: "Office Photos",
+          value: form.officePhotos.length ? `${form.officePhotos.length}/10 uploaded` : "",
+        },
+        { label: "Proposal Notes", value: form.proposalNotes },
         { label: "Project Notes", value: form.projectNote },
       ],
     },
@@ -380,6 +451,38 @@ export default function OfficeMovesFlow({ onBack }) {
       title: "Additional Information",
       rows: [{ label: "Move Date", value: form.moveDate }],
     },
+  ];
+
+  // Quote Overview for Review Summary — printable executive summary
+  const quoteOverview = [
+    { label: "Quote Ref", value: quoteRef },
+    { label: "Business", value: form.businessName || form.name },
+    { label: "Move Date", value: form.moveDate || "TBD" },
+    { label: "Service", value: "Office Moves" },
+    {
+      label: "Special Items",
+      value: form.specialItems.length ? String(form.specialItems.length) : "",
+    },
+    {
+      label: "Dismantling",
+      value: Object.values(form.dismantlingItems).filter((v) => v?.qty > 0).length
+        ? String(
+            Object.values(form.dismantlingItems).reduce(
+              (sum, v) => sum + (v?.qty || 0),
+              0
+            )
+          )
+        : "",
+    },
+    {
+      label: "Photos",
+      value: form.officePhotos.length ? `${form.officePhotos.length}/10` : "",
+    },
+    {
+      label: "Proposal Notes",
+      value: form.proposalNotes ? "Yes" : "",
+    },
+    { label: "Estimated Quote", value: formatRange(estimate) },
   ];
 
   return (
@@ -515,80 +618,216 @@ export default function OfficeMovesFlow({ onBack }) {
 
           {/* STEP 3 — Scope & Volume */}
           {step === 3 && (
-            <div>
-              <h2 className="mb-4 text-center font-semibold text-gray-800">
-                Scope & volume
-              </h2>
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Desks">
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full rounded-lg border border-gray-300 p-3"
-                    value={form.desks}
-                    onChange={(e) => set("desks", e.target.value)}
-                  />
-                </Field>
-                <Field label="Employees">
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full rounded-lg border border-gray-300 p-3"
-                    value={form.employees}
-                    onChange={(e) => set("employees", e.target.value)}
-                  />
-                </Field>
-                <Field label="Boxes">
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full rounded-lg border border-gray-300 p-3"
-                    value={form.boxes}
-                    onChange={(e) => set("boxes", e.target.value)}
-                  />
-                </Field>
-              </div>
-              <p className="mb-2 mt-4 text-sm font-medium text-gray-700">
-                What needs moving?
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {inventory.map((item) => {
-                  const active = !!form.inventory[item.key];
-                  return (
-                    <button
+            <div className="space-y-6">
+              <div>
+                <h2 className="mb-3 text-center font-semibold text-gray-800">
+                  Furniture & equipment
+                </h2>
+                <p className="mb-4 text-center text-xs text-gray-500">
+                  Add quantities for each type of furniture.
+                </p>
+                <div className="space-y-3">
+                  {FURNITURE_ITEMS.map((item) => (
+                    <div
                       key={item.key}
-                      type="button"
-                      onClick={() =>
-                        set("inventory", {
-                          ...form.inventory,
-                          [item.key]: !active,
-                        })
-                      }
-                      className={`flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition ${
-                        active
-                          ? "border-blue-600 bg-blue-50 font-medium text-blue-800"
-                          : "border-gray-300 text-gray-700 hover:border-blue-400"
-                      }`}
+                      className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
                     >
-                      <span
-                        className={`flex h-5 w-5 items-center justify-center rounded border ${
-                          active
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-gray-300"
-                        }`}
-                      >
-                        {active && "✓"}
-                      </span>
-                      {item.label}
-                    </button>
-                  );
-                })}
+                      <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const qty = Number(form.furnitureInventory[item.key] || 0);
+                            if (qty > 0) {
+                              set("furnitureInventory", {
+                                ...form.furnitureInventory,
+                                [item.key]: qty - 1,
+                              });
+                            }
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400 disabled:opacity-40"
+                          disabled={(form.furnitureInventory[item.key] || 0) <= 0}
+                          aria-label="Decrease"
+                        >
+                          −
+                        </button>
+                        <span className="w-6 text-center text-xs font-semibold text-gray-800">
+                          {form.furnitureInventory[item.key] || 0}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            set("furnitureInventory", {
+                              ...form.furnitureInventory,
+                              [item.key]: (form.furnitureInventory[item.key] || 0) + 1,
+                            });
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400"
+                          aria-label="Increase"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="mb-3 text-center font-semibold text-gray-800">
+                  Technology & equipment
+                </h3>
+                <div className="space-y-3">
+                  {TECHNOLOGY_ITEMS.map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
+                    >
+                      <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const qty = Number(form.technologyInventory[item.key] || 0);
+                            if (qty > 0) {
+                              set("technologyInventory", {
+                                ...form.technologyInventory,
+                                [item.key]: qty - 1,
+                              });
+                            }
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400 disabled:opacity-40"
+                          disabled={(form.technologyInventory[item.key] || 0) <= 0}
+                          aria-label="Decrease"
+                        >
+                          −
+                        </button>
+                        <span className="w-6 text-center text-xs font-semibold text-gray-800">
+                          {form.technologyInventory[item.key] || 0}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            set("technologyInventory", {
+                              ...form.technologyInventory,
+                              [item.key]: (form.technologyInventory[item.key] || 0) + 1,
+                            });
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400"
+                          aria-label="Increase"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          {/* STEP 4 — Access (collapsible) */}
+          {/* STEP 4 — Dismantling & Reassembly */}
           {step === 4 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">
+                Dismantling & reassembly required?
+              </h2>
+              <p className="text-center text-xs text-gray-500 mb-4">
+                Capture quantity for each item type. Reassembly can be added at destination.
+              </p>
+              {DISMANTLING_ITEMS.map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-gray-200 p-4 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-700">{item.label}</span>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const qty = Number(form.dismantlingItems[item.key]?.qty || 0);
+                          if (qty > 0) {
+                            set("dismantlingItems", {
+                              ...form.dismantlingItems,
+                              [item.key]: { qty: qty - 1, reassemblyRequired: form.dismantlingItems[item.key]?.reassemblyRequired || "No" },
+                            });
+                          }
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400 disabled:opacity-40"
+                        disabled={(form.dismantlingItems[item.key]?.qty || 0) <= 0}
+                      >
+                        −
+                      </button>
+                      <span className="w-6 text-center text-xs font-semibold text-gray-800">
+                        {form.dismantlingItems[item.key]?.qty || 0}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          set("dismantlingItems", {
+                            ...form.dismantlingItems,
+                            [item.key]: { qty: (form.dismantlingItems[item.key]?.qty || 0) + 1, reassemblyRequired: form.dismantlingItems[item.key]?.reassemblyRequired || "No" },
+                          });
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded border border-gray-300 text-sm font-bold text-gray-700 transition hover:border-blue-400"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  {form.dismantlingItems[item.key]?.qty > 0 && (
+                    <div className="text-xs font-medium text-gray-700 pt-2 border-t border-gray-100">
+                      Reassembly?
+                      <div className="mt-1 flex gap-1">
+                        {["Yes", "No"].map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() =>
+                              set("dismantlingItems", {
+                                ...form.dismantlingItems,
+                                [item.key]: {
+                                  qty: form.dismantlingItems[item.key]?.qty || 0,
+                                  reassemblyRequired: opt,
+                                },
+                              })
+                            }
+                            className={`flex-1 rounded border px-2 py-1 text-xs font-medium transition ${
+                              form.dismantlingItems[item.key]?.reassemblyRequired === opt
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-gray-300 bg-white text-gray-700 hover:border-blue-400"
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEP 5 — Special/Oversized Items */}
+          {step === 5 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Any special or oversized items?
+              </h2>
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Specialized equipment, custom furniture, or anything requiring expert handling.
+              </p>
+              <SpecialItemsSection
+                items={form.specialItems}
+                onChange={(items) => set("specialItems", items)}
+              />
+            </div>
+          )}
+
+          {/* STEP 6 — Access (collapsible) - was step 4 */}
+          {step === 6 && (
             <div className="space-y-3">
               <h2 className="text-center font-semibold text-gray-800">
                 Access at each site
@@ -614,8 +853,8 @@ export default function OfficeMovesFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 5 — Services & complexity (conditional follow-ups) */}
-          {step === 5 && (
+          {/* STEP 7 — Services & complexity (conditional follow-ups) - was step 5 */}
+          {step === 7 && (
             <div>
               <h2 className="mb-4 text-center font-semibold text-gray-800">
                 Services & complexity
@@ -683,8 +922,8 @@ export default function OfficeMovesFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 6 — Advanced Move Complexity (conditional) */}
-          {step === 6 && showComplexity && (
+          {/* STEP 8 — Advanced Move Complexity (conditional) - was step 6 */}
+          {step === 8 && showComplexity && (
             <div>
               <h2 className="mb-1 text-center font-semibold text-gray-800">
                 A few extra details
@@ -823,6 +1062,41 @@ export default function OfficeMovesFlow({ onBack }) {
             </div>
           )}
 
+          {/* STEP 9 — Office Photos */}
+          {step === 9 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Add office photos (optional)
+              </h2>
+              <PhotoUploadSection
+                quoteRef={quoteRef}
+                photos={form.officePhotos}
+                onChange={(photos) => set("officePhotos", photos)}
+              />
+            </div>
+          )}
+
+          {/* STEP 10 — Proposal Notes */}
+          {step === 10 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Any additional notes?
+              </h2>
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Operational details, access constraints, or anything else our team should know.
+              </p>
+              <Field label="Notes (optional)">
+                <textarea
+                  className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+                  rows="5"
+                  placeholder="e.g., Building requires prior notice, main entrance is narrow, preferred time window..."
+                  value={form.proposalNotes}
+                  onChange={(e) => set("proposalNotes", e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+
           {/* LEAD ATTRIBUTION */}
           {step === leadStep && (
             <LeadAttributionStep
@@ -834,7 +1108,7 @@ export default function OfficeMovesFlow({ onBack }) {
 
           {/* REVIEW SUMMARY — submission happens here */}
           {step === reviewStep && (
-            <ReviewSummary sections={reviewSections}>
+            <ReviewSummary sections={reviewSections} overview={quoteOverview}>
               <div className="mt-6 flex gap-3">
                 <button
                   type="button"

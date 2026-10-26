@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import DiscountEligibility from "./DiscountEligibility";
 import { formatRange } from "../lib/pricing";
@@ -9,6 +9,8 @@ import { ROOMS, ROOM_ORDER, summariseInventory } from "../lib/homeInventory";
 import { ATTRIBUTION_DEFAULTS } from "../lib/leadAttribution";
 import LeadAttributionStep, { useReferralParam } from "./quote/LeadAttributionStep";
 import ReviewSummary from "./quote/ReviewSummary";
+import SpecialItemsSection from "./SpecialItemsSection";
+import PhotoUploadSection from "./PhotoUploadSection";
 
 /* ---------------------------------------------------------------------------
  * Home Removals flow (room-based inventory model).
@@ -17,6 +19,9 @@ import ReviewSummary from "./quote/ReviewSummary";
  * pricing constants live here. Room/item labels come from the shared
  * homeInventory catalog (same source the server uses for summaries).
  * Mobile-first; same card/segmented UI language.
+ *
+ * Steps: 1-11 capture, 12 special items, 13 dismantling, 14 photos,
+ * 15 proposal notes, 16 lead attribution, 17 review, 18 final.
  * ------------------------------------------------------------------------- */
 
 const roomsCatalog = ROOMS;
@@ -24,11 +29,17 @@ const ROOM_KEYS = ROOM_ORDER;
 const HIGH_VALUE = ["None", "Low", "Medium", "High", "Very High"];
 const FRAGILE = ["Standard", "Some Fragile", "Delicate", "Very Delicate", "Specialist Handling"];
 const PACKING = ["Boxes", "Bubble Wrap", "Shrink Wrap", "Mattress Covers", "Wardrobe Boxes", "Full Packing Service"];
-const SPECIAL_HANDLING = ["Piano", "Safe", "Large Artwork", "Antique Furniture", "Gym Equipment", "American Fridge Freezer", "Other"];
 const FLOORS = ["Ground", "1st", "2nd", "3rd+", "Lift Available"];
 const PARKING = ["Free", "Paid", "No Parking"];
 const FLEXIBILITY = ["Exact Date", "+/- 3 Days", "Flexible"];
 const BUDGETS = ["Under £500", "£500-£1000", "£1000-£2000", "£2000+"];
+const DISMANTLING_ITEMS = [
+  { key: "beds", label: "Beds" },
+  { key: "wardrobes", label: "Wardrobes" },
+  { key: "desks", label: "Desks" },
+  { key: "diningTables", label: "Dining Tables" },
+  { key: "other", label: "Other" },
+];
 
 // Property type — contextual (does not affect price; rooms drive the quote).
 // Uses the original property images from /public/images/House Icons Configurator.
@@ -39,12 +50,11 @@ const PROPERTY_TYPES = [
   { id: "4+ Bedroom Property", label: "4+ Bedroom Property", image: "/images/House Icons Configurator/4 Bedroom House.jpg" },
 ];
 
-// Steps 1–11 capture inputs; step 12 is Lead Attribution; step 13 is the
-// Review Summary; step 14 is the final quote screen. The lead submission fires
-// on "Get My Quote" (step 13, the Review Summary).
-const TOTAL_STEPS = 14;
-const REVIEW_STEP = 13;
-const LEAD_STEP = 12;
+// Steps 1–11 capture location/rooms/items; 12 special items; 13 dismantling;
+// 14 photos; 15 proposal notes; 16 lead attribution; 17 review; 18 final.
+const TOTAL_STEPS = 18;
+const REVIEW_STEP = 17;
+const LEAD_STEP = 16;
 
 const stepMotion = {
   initial: { opacity: 0, x: 24 },
@@ -147,6 +157,7 @@ function BreakdownRow({ label, value, muted }) {
 
 export default function HomeRemovalsFlow({ onBack }) {
   const [step, setStep] = useState(1);
+  const [quoteRef, setQuoteRef] = useState(""); // Generated before photo upload
   const [form, setForm] = useState({
     pickupPostcode: "",
     destPostcode: "",
@@ -162,8 +173,10 @@ export default function HomeRemovalsFlow({ onBack }) {
     highValue: "None",
     fragileLevel: "Standard",
     packing: {},
-    specialHandling: {},
-    specialHandlingOther: "",
+    specialItems: [],
+    dismantling: {},
+    propertyPhotos: [],
+    proposalNotes: "",
     pickup: { parking: "Free", floor: "Ground" },
     dropoff: { parking: "Free", floor: "Ground" },
     moveDate: "",
@@ -171,6 +184,18 @@ export default function HomeRemovalsFlow({ onBack }) {
     customerBudget: "",
     ...ATTRIBUTION_DEFAULTS,
   });
+
+  // Generate quote reference on mount for use in photo uploads
+  useEffect(() => {
+    if (!quoteRef) {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+      const seq = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, "0");
+      setQuoteRef(`HR-${dateStr}-${seq}`);
+    }
+  }, [quoteRef]);
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -219,9 +244,6 @@ export default function HomeRemovalsFlow({ onBack }) {
   const togglePacking = (key) =>
     setForm((f) => ({ ...f, packing: { ...f.packing, [key]: !f.packing[key] } }));
 
-  const toggleSpecial = (key) =>
-    setForm((f) => ({ ...f, specialHandling: { ...f.specialHandling, [key]: !f.specialHandling[key] } }));
-
   const activeRooms = ROOM_KEYS.filter((k) => form.selectedRooms[k]);
   const canContinue =
     (step !== 1 || detailsValid) && (step !== LEAD_STEP || !!form.leadSource);
@@ -230,9 +252,27 @@ export default function HomeRemovalsFlow({ onBack }) {
   const packingList = Object.keys(form.packing)
     .filter((k) => form.packing[k])
     .join(", ");
-  const specialList = Object.keys(form.specialHandling)
-    .filter((k) => form.specialHandling[k])
-    .join(", ");
+  const specialItemsList = form.specialItems
+    .map((item) => {
+      let desc = item.description || "Unknown";
+      if (item.quantity && item.quantity > 1) desc += ` (qty ${item.quantity})`;
+      const flags = [];
+      if (item.isHeavy === "Yes") flags.push("heavy");
+      if (item.requiresDismantling === "Yes") flags.push("dismantling");
+      if (item.requiresReassembly === "Yes") flags.push("reassembly");
+      if (flags.length) desc += ` [${flags.join(", ")}]`;
+      return desc;
+    })
+    .join(" · ");
+  const dismantlingList = Object.entries(form.dismantling)
+    .filter(([_, v]) => v && v.qty > 0)
+    .map(([key, v]) => {
+      const label = DISMANTLING_ITEMS.find((i) => i.key === key)?.label || key;
+      return `${label} (qty ${v.qty}${
+        v.reassemblyRequired === "Yes" ? ", reassembly required" : ""
+      })`;
+    })
+    .join(" · ");
   const accessStr = (a) => `${a.floor} · Parking: ${a.parking}`;
   const reviewSections = [
     {
@@ -251,12 +291,8 @@ export default function HomeRemovalsFlow({ onBack }) {
         { label: "High Value Level", value: form.highValue },
         { label: "Fragile Level", value: form.fragileLevel },
         { label: "Packing Requirements", value: packingList },
-        {
-          label: "Special Handling",
-          value:
-            specialList +
-            (form.specialHandlingOther ? ` (${form.specialHandlingOther})` : ""),
-        },
+        { label: "Special/Oversized Items", value: specialItemsList },
+        { label: "Dismantling & Reassembly", value: dismantlingList },
       ],
     },
     {
@@ -298,8 +334,45 @@ export default function HomeRemovalsFlow({ onBack }) {
             : `Flexible (${form.moveFlexibility})`,
         },
         { label: "Budget", value: form.customerBudget },
+        {
+          label: "Property Photos",
+          value: form.propertyPhotos.length ? `${form.propertyPhotos.length}/10 uploaded` : "",
+        },
+        { label: "Proposal Notes", value: form.proposalNotes },
       ],
     },
+  ];
+
+  // Quote Overview for Review Summary — printable executive summary
+  const quoteOverview = [
+    { label: "Quote Ref", value: quoteRef },
+    { label: "Customer", value: form.name },
+    { label: "Move Date", value: form.moveDate || "Flexible" },
+    { label: "Service", value: "Home Removals" },
+    {
+      label: "Special Items",
+      value: form.specialItems.length ? String(form.specialItems.length) : "",
+    },
+    {
+      label: "Dismantling",
+      value: Object.values(form.dismantling).filter((v) => v?.qty > 0).length
+        ? String(
+            Object.values(form.dismantling).reduce(
+              (sum, v) => sum + (v?.qty || 0),
+              0
+            )
+          )
+        : "",
+    },
+    {
+      label: "Photos",
+      value: form.propertyPhotos.length ? `${form.propertyPhotos.length}/10` : "",
+    },
+    {
+      label: "Proposal Notes",
+      value: form.proposalNotes ? "Yes" : "",
+    },
+    { label: "Estimated Quote", value: formatRange(estimate) },
   ];
 
   const goNext = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS));
@@ -560,53 +633,19 @@ export default function HomeRemovalsFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 7 — Special handling */}
+          {/* STEP 7 — Special/Oversized Items */}
           {step === 7 && (
             <div>
               <h2 className="mb-1 text-center font-semibold text-gray-800">
-                Special handling requirements
+                Any special or oversized items?
               </h2>
               <p className="mb-4 text-center text-xs text-gray-500">
-                Items needing specialist care, equipment, or extra crew.
+                Pianos, safes, trampolines, servers, or anything requiring specialist handling.
               </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {SPECIAL_HANDLING.map((key) => {
-                  const active = !!form.specialHandling[key];
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => toggleSpecial(key)}
-                      className={`flex items-center gap-2 rounded-lg border p-3 text-left text-sm transition ${
-                        active
-                          ? "border-blue-600 bg-blue-50 font-medium text-blue-800"
-                          : "border-gray-300 text-gray-700 hover:border-blue-400"
-                      }`}
-                    >
-                      <span
-                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                          active ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300"
-                        }`}
-                      >
-                        {active && "✓"}
-                      </span>
-                      {key}
-                    </button>
-                  );
-                })}
-              </div>
-              {form.specialHandling.Other && (
-                <div className="mt-3">
-                  <Field label="Tell us more (optional)">
-                    <input
-                      className="w-full rounded-lg border border-gray-300 p-3 text-sm"
-                      placeholder="e.g. pool table, motorbike, chandelier"
-                      value={form.specialHandlingOther}
-                      onChange={(e) => set("specialHandlingOther", e.target.value)}
-                    />
-                  </Field>
-                </div>
-              )}
+              <SpecialItemsSection
+                items={form.specialItems}
+                onChange={(items) => set("specialItems", items)}
+              />
             </div>
           )}
 
@@ -727,8 +766,106 @@ export default function HomeRemovalsFlow({ onBack }) {
             </div>
           )}
 
-          {/* STEP 12 — Lead Attribution */}
+          {/* STEP 12 — Dismantling & Reassembly */}
           {step === 12 && (
+            <div className="space-y-4">
+              <h2 className="text-center font-semibold text-gray-800">
+                Items requiring dismantling?
+              </h2>
+              <p className="text-center text-xs text-gray-500 mb-4">
+                Capture quantity for each item type. Reassembly can be added at destination.
+              </p>
+              {DISMANTLING_ITEMS.map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-gray-200 p-4 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-gray-700">{item.label}</span>
+                    <Stepper
+                      value={form.dismantling[item.key]?.qty || 0}
+                      onChange={(q) =>
+                        set("dismantling", {
+                          ...form.dismantling,
+                          [item.key]: {
+                            qty: q,
+                            reassemblyRequired: form.dismantling[item.key]?.reassemblyRequired || "No",
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  {form.dismantling[item.key]?.qty > 0 && (
+                    <div className="text-xs font-medium text-gray-700 pt-2 border-t border-gray-100">
+                      Reassembly?
+                      <div className="mt-1 flex gap-1">
+                        {["Yes", "No"].map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() =>
+                              set("dismantling", {
+                                ...form.dismantling,
+                                [item.key]: {
+                                  ...form.dismantling[item.key],
+                                  reassemblyRequired: opt,
+                                },
+                              })
+                            }
+                            className={`flex-1 rounded border px-2 py-1 text-xs font-medium transition ${
+                              form.dismantling[item.key]?.reassemblyRequired === opt
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-gray-300 bg-white text-gray-700 hover:border-blue-400"
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* STEP 13 — Property Photos */}
+          {step === 13 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Add property photos (optional)
+              </h2>
+              <PhotoUploadSection
+                quoteRef={quoteRef}
+                photos={form.propertyPhotos}
+                onChange={(photos) => set("propertyPhotos", photos)}
+              />
+            </div>
+          )}
+
+          {/* STEP 14 — Proposal Notes */}
+          {step === 14 && (
+            <div>
+              <h2 className="mb-1 text-center font-semibold text-gray-800">
+                Any additional notes?
+              </h2>
+              <p className="mb-4 text-center text-xs text-gray-500">
+                Special requirements, access details, or anything else our team should know.
+              </p>
+              <Field label="Notes (optional)">
+                <textarea
+                  className="w-full rounded-lg border border-gray-300 p-3 text-sm"
+                  rows="5"
+                  placeholder="e.g., Building requires prior notice, main staircase is narrow, prefer morning delivery..."
+                  value={form.proposalNotes}
+                  onChange={(e) => set("proposalNotes", e.target.value)}
+                />
+              </Field>
+            </div>
+          )}
+
+          {/* STEP 15 — Lead Attribution */}
+          {step === 15 && (
             <LeadAttributionStep
               leadSource={form.leadSource}
               referrerName={form.referrerName}
@@ -736,9 +873,9 @@ export default function HomeRemovalsFlow({ onBack }) {
             />
           )}
 
-          {/* STEP 13 — Review Summary */}
-          {step === 13 && (
-            <ReviewSummary sections={reviewSections}>
+          {/* STEP 17 — Review Summary */}
+          {step === 17 && (
+            <ReviewSummary sections={reviewSections} overview={quoteOverview}>
               {customQuoteRequired && (
                 <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
                   ⚠ Custom Quote Required — submit your details and our team will
@@ -771,8 +908,8 @@ export default function HomeRemovalsFlow({ onBack }) {
             </ReviewSummary>
           )}
 
-          {/* STEP 14 — Final quote & breakdown */}
-          {step === 14 && (
+          {/* STEP 18 — Final quote & breakdown */}
+          {step === 18 && (
             <div className="text-center">
               <h2 className="mb-1 text-sm font-medium text-gray-500">Your estimated quote</h2>
               <p className="mb-1 text-4xl font-bold text-gray-900">

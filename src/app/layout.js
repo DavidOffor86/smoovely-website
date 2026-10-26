@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 const siteUrl = "https://smoovelylogistics.com";
 const siteName = "Smoovely QuickMove";
 const description =
-  "Fast, reliable removals, logistics and storage across the UK. Home removals, office moves, man and van, clearance and secure storage — get an instant, transparent quote in under 90 seconds.";
+  "Fast, reliable removals, logistics and storage across the UK. Home removals, office moves, man and van, clearance and secure storage — get an instant, transparent quote in under 90 seconds. Part of Smoovely Relocation & Mobility Services, now including international and sports relocation.";
 
 export const metadata = {
   metadataBase: new URL(siteUrl),

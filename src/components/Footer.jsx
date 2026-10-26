@@ -34,6 +34,10 @@ export default function Footer() {
               Fast, reliable removals, logistics and storage across the UK.
               Transparent pricing, fully insured, every time.
             </p>
+            <p className="mt-3 text-sm font-medium text-slate-300">
+              Smoovely Relocation &amp; Mobility Services — now including
+              international &amp; sports relocation.
+            </p>
           </div>
 
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm">

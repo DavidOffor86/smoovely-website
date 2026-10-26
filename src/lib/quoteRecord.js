@@ -13,6 +13,42 @@ const gbp = (n) => (n === "" || n == null ? "—" : `£${Number(n).toLocaleStrin
 const csvList = (v) =>
   Array.isArray(v) ? v.join(", ") : Object.keys(v || {}).filter((k) => v[k]).join(", ");
 
+// Format special items array to readable CSV string
+const formatSpecialItems = (items = []) => {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return items
+    .map((item) => {
+      let desc = item.description || "Unknown";
+      if (item.quantity && item.quantity > 1) desc += ` (qty ${item.quantity})`;
+      const flags = [];
+      if (item.isHeavy === "Yes") flags.push("heavy");
+      if (item.requiresDismantling === "Yes") flags.push("dismantling");
+      if (item.requiresReassembly === "Yes") flags.push("reassembly");
+      if (flags.length) desc += ` [${flags.join(", ")}]`;
+      return desc;
+    })
+    .join(" · ");
+};
+
+// Format dismantling items object to readable CSV string
+const formatDismantlingItems = (items = {}) => {
+  if (!items || Object.keys(items).length === 0) return "";
+  return Object.entries(items)
+    .filter(([_, v]) => v && v.qty > 0)
+    .map(([key, v]) => {
+      const qty = v.qty || v.quantity || 0;
+      const reassembly = v.reassemblyRequired === "Yes" ? ", reassembly: Yes" : "";
+      return `${key} (qty ${qty}${reassembly})`;
+    })
+    .join(" · ");
+};
+
+// Format photo array to URLs string
+const formatPhotoUrls = (photos = []) => {
+  if (!Array.isArray(photos) || photos.length === 0) return "";
+  return photos.map((p) => p.url).join(" ");
+};
+
 /** Structured lead metadata for CRM reporting. */
 export function buildLeadSummary(service, details = {}, quote = {}) {
   return {
@@ -80,6 +116,42 @@ export function buildQuoteRecord({ service, contact = {}, details = {}, quote = 
 
     inventorySummary: summariseInventory(details),
 
+    // Special/Oversized items (both Home Removals and Office Moves)
+    specialItems: formatSpecialItems(details.specialItems),
+    specialItemsCount: Array.isArray(details.specialItems) ? details.specialItems.length : 0,
+    specialItemsJson: Array.isArray(details.specialItems)
+      ? JSON.stringify(details.specialItems)
+      : "",
+
+    // Dismantling & Reassembly (both services)
+    dismantlingItems: formatDismantlingItems(details.dismantling),
+    dismantlingCount: details.dismantling
+      ? Object.values(details.dismantling)
+          .filter((v) => v && v.qty > 0)
+          .reduce((sum, v) => sum + (v.qty || v.quantity || 0), 0)
+      : 0,
+
+    // Furniture & Technology inventory (Office Moves only)
+    furnitureInventory: formatSpecialItems(
+      Object.entries(details.furnitureInventory || {})
+        .map(([key, qty]) => ({ description: key, quantity: qty }))
+    ),
+    technologyInventory: formatSpecialItems(
+      Object.entries(details.technologyInventory || {})
+        .map(([key, qty]) => ({ description: key, quantity: qty }))
+    ),
+
+    // Photos (both services)
+    propertyPhotosCount:
+      Array.isArray(details.propertyPhotos) ? details.propertyPhotos.length : 0,
+    propertyPhotoUrls: formatPhotoUrls(details.propertyPhotos),
+    officePhotosCount:
+      Array.isArray(details.officePhotos) ? details.officePhotos.length : 0,
+    officePhotoUrls: formatPhotoUrls(details.officePhotos),
+
+    // Proposal notes (both services)
+    proposalNotes: (details.proposalNotes || "").trim(),
+
     // Lead attribution (applies to every configurator). Captured after contact
     // details, before the review summary. leadSourceCode carries any ?ref= code.
     leadSource: details.leadSource || "",
@@ -90,47 +162,147 @@ export function buildQuoteRecord({ service, contact = {}, details = {}, quote = 
   };
 }
 
-/** Formatted plain-text notification email (matches the spec layout). */
+/** Formatted operational proposal briefing email. */
 export function buildQuoteEmailText(record) {
+  const section = (title) => `\n${"=".repeat(60)}\n${title}\n${"=".repeat(60)}\n`;
+  const field = (label, value) =>
+    `${label}: ${value || "None"}\n`;
+
   const dist =
     record.distanceMiles === "" || record.distanceMiles == null
       ? "Local / included"
       : `${record.distanceMiles} miles`;
 
-  const parts = [];
+  let email = `OPERATIONAL PROPOSAL BRIEFING\n`;
+  email += `Service: ${record.service}\n`;
+  email += `Quote Version: ${record.quoteVersion || 1}\n`;
   if (record.customQuoteRequired) {
-    parts.push("⚠ CUSTOM QUOTE REQUIRED — team to confirm a tailored price\n");
+    email += `⚠ CUSTOM QUOTE REQUIRED — team to confirm tailored price\n`;
   }
-  parts.push(`Service:\n${record.service}\n`);
-  if (record.propertyType) parts.push(`Property Type:\n${record.propertyType}\n`);
-  // Location postcodes — only shown when present (varies per service).
-  if (record.pickupPostcode) parts.push(`Pickup Postcode:\n${record.pickupPostcode}\n`);
-  if (record.collectionPostcode) parts.push(`Collection Postcode:\n${record.collectionPostcode}\n`);
-  if (record.destPostcode) parts.push(`Drop-off Postcode:\n${record.destPostcode}\n`);
-  if (record.deliveryPostcode) parts.push(`Delivery Postcode:\n${record.deliveryPostcode}\n`);
-  if (record.returnPostcode) parts.push(`Return Postcode:\n${record.returnPostcode}\n`);
-  parts.push(`Distance:\n${dist}\n`);
-  parts.push(`Vehicle:\n${record.vehicleRecommendation || "—"}\n`);
-  parts.push(`Crew:\n${record.crewRecommendation || "—"}\n`);
-  parts.push(
-    `Breakdown:\n\n` +
-      `Service Component:\n${gbp(record.serviceComponent)}\n\n` +
-      `Travel Component:\n${gbp(record.travelComponent)}\n\n` +
-      `Packing Component:\n${gbp(record.packingComponent)}\n\n` +
-      `Complexity Component:\n${gbp(record.complexityComponent)}\n`
-  );
-  parts.push(`Estimated Quote:\n${record.estimateRange || gbp(record.estimate)}\n`);
-  parts.push(`Contact:\n${record.name} · ${record.email} · ${record.phone}\n`);
-  if (record.moveDate || record.moveFlexibility) {
-    parts.push(`Move Date:\n${record.moveDate || "Flexible"} (${record.moveFlexibility || "Flexible"})\n`);
-  }
-  if (record.customerBudget) parts.push(`Budget:\n${record.customerBudget}\n`);
-  if (record.leadSource) parts.push(`Lead Source:\n${record.leadSource}\n`);
-  if (record.referrerName) parts.push(`Referrer Name:\n${record.referrerName}\n`);
-  if (record.leadSourceCode) parts.push(`Lead Source Code:\n${record.leadSourceCode}\n`);
-  if (record.quoteVersion) parts.push(`Quote Version:\n${record.quoteVersion}\n`);
-  if (record.pricingVersion) parts.push(`Pricing Version:\n${record.pricingVersion}\n`);
-  if (record.inventorySummary) parts.push(`Inventory Summary:\n${record.inventorySummary}\n`);
+  email += "\n";
 
-  return parts.join("\n");
+  // 1. Quote Overview
+  email += section("1. QUOTE OVERVIEW");
+  email += field("Estimated Quote", record.estimateRange || gbp(record.estimate));
+  email += field("Quote Reference", record.timestamp);
+  email += field("Pricing Version", record.pricingVersion || "Standard");
+
+  // 2. Customer Information
+  email += section("2. CUSTOMER INFORMATION");
+  email += field("Contact Name", record.name);
+  email += field("Email Address", record.email);
+  email += field("Phone Number", record.phone);
+  if (record.service === "Office Moves") {
+    email += field("Business Name", "");
+  }
+
+  // 3. Journey Information
+  email += section("3. JOURNEY INFORMATION");
+  if (record.propertyType) {
+    email += field("Property Type", record.propertyType);
+  }
+  email += field("Pickup Postcode", record.pickupPostcode || record.collectionPostcode || "");
+  email += field(
+    "Destination Postcode",
+    record.destPostcode || record.deliveryPostcode || ""
+  );
+  email += field("Distance", dist);
+  email += field("Move Date", record.moveDate || "Flexible");
+  email += field("Move Flexibility", record.moveFlexibility || "Flexible");
+  if (record.pickupFloor || record.deliveryFloor) {
+    email += field(
+      "Pickup Access",
+      record.pickupFloor ? `Floor: ${record.pickupFloor}` : ""
+    );
+    email += field(
+      "Delivery Access",
+      record.deliveryFloor ? `Floor: ${record.deliveryFloor}` : ""
+    );
+  }
+
+  // 4. Furniture Inventory (Office Moves only)
+  if (record.furnitureInventory) {
+    email += section("4. FURNITURE INVENTORY");
+    email += `${record.furnitureInventory || "None"}\n`;
+  }
+
+  // 5. Technology Inventory (Office Moves only)
+  if (record.technologyInventory) {
+    email += section("5. TECHNOLOGY INVENTORY");
+    email += `${record.technologyInventory || "None"}\n`;
+  }
+
+  // 6. Special Items
+  email += section("6. SPECIAL/OVERSIZED ITEMS");
+  if (record.specialItems) {
+    email += `${record.specialItems}\n`;
+  } else {
+    email += "None\n";
+  }
+
+  // 7. Dismantling & Reassembly
+  email += section("7. DISMANTLING & REASSEMBLY");
+  if (record.dismantlingItems) {
+    email += `${record.dismantlingItems}\n`;
+  } else {
+    email += "None\n";
+  }
+
+  // 8. Survey Photos
+  email += section("8. SURVEY PHOTOS");
+  if (record.propertyPhotosCount) {
+    email += field("Property Photos Uploaded", `${record.propertyPhotosCount}/10`);
+    if (record.propertyPhotoUrls) {
+      const photos = record.propertyPhotoUrls.split(" ");
+      photos.forEach((photo, idx) => {
+        if (photo) email += `  Photo ${idx + 1}: ${photo}\n`;
+      });
+    }
+  } else if (record.officePhotosCount) {
+    email += field("Office Photos Uploaded", `${record.officePhotosCount}/10`);
+    if (record.officePhotoUrls) {
+      const photos = record.officePhotoUrls.split(" ");
+      photos.forEach((photo, idx) => {
+        if (photo) email += `  Photo ${idx + 1}: ${photo}\n`;
+      });
+    }
+  } else {
+    email += "None\n";
+  }
+
+  // 9. Proposal Notes
+  email += section("9. PROPOSAL NOTES");
+  email += `${record.proposalNotes || "None"}\n`;
+
+  // 10. Pricing Summary
+  email += section("10. PRICING SUMMARY");
+  email += field("Service Component", gbp(record.serviceComponent));
+  email += field("Travel Component", gbp(record.travelComponent));
+  if (record.packingComponent) {
+    email += field("Packing Component", gbp(record.packingComponent));
+  }
+  if (record.complexityComponent) {
+    email += field("Complexity Component", gbp(record.complexityComponent));
+  }
+  email += field("Vehicle Recommendation", record.vehicleRecommendation || "—");
+  email += field("Crew Recommendation", record.crewRecommendation || "—");
+  email += field("Estimated Quote", record.estimateRange || gbp(record.estimate));
+  email += field("Customer Budget", record.customerBudget || "Not specified");
+
+  // Additional metadata
+  email += section("REFERENCE INFORMATION");
+  email += field("Lead Source", record.leadSource || "Direct");
+  if (record.referrerName) {
+    email += field("Referrer Name", record.referrerName);
+  }
+  if (record.leadSourceCode) {
+    email += field("Lead Source Code", record.leadSourceCode);
+  }
+  email += field("Submission Time", record.timestamp);
+
+  email += "\n" + "=".repeat(60) + "\n";
+  email += "This proposal briefing was auto-generated from the quote configurator.\n";
+  email += "Review and confirm all details before proceeding with the survey.\n";
+
+  return email;
 }

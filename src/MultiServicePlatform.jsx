@@ -8,6 +8,8 @@ import B2BLogisticsFlow from "./components/B2BLogisticsFlow";
 import ClearanceFlow from "./components/ClearanceFlow";
 import StorageFlow from "./components/StorageFlow";
 import HousingFlow from "./components/HousingFlow";
+import RelocationFlow from "./components/RelocationFlow";
+import FleetWashingFlow from "./components/FleetWashingFlow";
 
 const Button = ({ children, ...props }) => (
   <button
@@ -25,6 +27,9 @@ const services = [
   "Clearance & Disposal",
   "Storage Solutions",
   "Housing & Property Services",
+  "International Relocation",
+  "Sports Relocation",
+  "Fleet Washing Services",
 ];
 
 // Bedroom options for the Home Removals "Details" step (values unchanged).
@@ -82,6 +87,12 @@ export default function MultiServicePlatform() {
         <StorageFlow onBack={() => setStep(1)} />
       ) : data.service === "Housing & Property Services" && step >= 2 ? (
         <HousingFlow onBack={() => setStep(1)} />
+      ) : data.service === "International Relocation" && step >= 2 ? (
+        <RelocationFlow initialMoveType="International Relocation" onBack={() => setStep(1)} />
+      ) : data.service === "Sports Relocation" && step >= 2 ? (
+        <RelocationFlow initialMoveType="Sports Relocation" onBack={() => setStep(1)} />
+      ) : data.service === "Fleet Washing Services" && step >= 2 ? (
+        <FleetWashingFlow onBack={() => setStep(1)} />
       ) : (
       <>
 
