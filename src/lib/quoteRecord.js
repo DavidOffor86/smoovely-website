@@ -220,36 +220,53 @@ export function buildQuoteEmailText(record) {
     );
   }
 
-  // 4. Furniture Inventory (Office Moves only)
+  // 4. Inventory Summary (Home Removals & Office Moves)
+  email += section("4. INVENTORY SUMMARY");
+  if (record.inventorySummary) {
+    email += `${record.inventorySummary}\n`;
+  } else {
+    email += "None\n";
+  }
+  if (record.highValue) {
+    email += field("High Value Items", record.highValue);
+  }
+  if (record.fragileLevel) {
+    email += field("Fragile Items Level", record.fragileLevel);
+  }
+  if (record.packingRequirements) {
+    email += field("Packing Requirements", record.packingRequirements);
+  }
+
+  // 5. Furniture Inventory (Office Moves only — detailed)
   if (record.furnitureInventory) {
-    email += section("4. FURNITURE INVENTORY");
+    email += section("5. FURNITURE INVENTORY");
     email += `${record.furnitureInventory || "None"}\n`;
   }
 
-  // 5. Technology Inventory (Office Moves only)
+  // 6. Technology Inventory (Office Moves only — detailed)
   if (record.technologyInventory) {
-    email += section("5. TECHNOLOGY INVENTORY");
+    email += section("6. TECHNOLOGY INVENTORY");
     email += `${record.technologyInventory || "None"}\n`;
   }
 
-  // 6. Special Items
-  email += section("6. SPECIAL/OVERSIZED ITEMS");
+  // 7. Special Items
+  email += section("7. SPECIAL/OVERSIZED ITEMS");
   if (record.specialItems) {
     email += `${record.specialItems}\n`;
   } else {
     email += "None\n";
   }
 
-  // 7. Dismantling & Reassembly
-  email += section("7. DISMANTLING & REASSEMBLY");
+  // 8. Dismantling & Reassembly
+  email += section("8. DISMANTLING & REASSEMBLY");
   if (record.dismantlingItems) {
     email += `${record.dismantlingItems}\n`;
   } else {
     email += "None\n";
   }
 
-  // 8. Survey Photos
-  email += section("8. SURVEY PHOTOS");
+  // 9. Survey Photos
+  email += section("9. SURVEY PHOTOS");
   if (record.propertyPhotosCount) {
     email += field("Property Photos Uploaded", `${record.propertyPhotosCount}/10`);
     if (record.propertyPhotoUrls) {
@@ -270,12 +287,12 @@ export function buildQuoteEmailText(record) {
     email += "None\n";
   }
 
-  // 9. Proposal Notes
-  email += section("9. PROPOSAL NOTES");
+  // 10. Proposal Notes
+  email += section("10. PROPOSAL NOTES");
   email += `${record.proposalNotes || "None"}\n`;
 
-  // 10. Pricing Summary
-  email += section("10. PRICING SUMMARY");
+  // 11. Pricing Summary
+  email += section("11. PRICING SUMMARY");
   email += field("Service Component", gbp(record.serviceComponent));
   email += field("Travel Component", gbp(record.travelComponent));
   if (record.packingComponent) {
